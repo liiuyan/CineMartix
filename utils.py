@@ -31,6 +31,24 @@ class HistoryManager:
         """获取历史上发过的所有电影名单"""
         return list(self.history.keys())
 
+    def get_recent(self, limit=10):
+        """[新增] 获取最近发布的 N 部电影 (按日期倒序)"""
+        try:
+            if not self.history:
+                return []
+            # self.history 的结构是 {"电影名": "2023-10-27"}
+            # 按日期(value)进行倒序排序
+            sorted_items = sorted(self.history.items(), key=lambda x: x[1], reverse=True)
+            # 只返回电影名列表
+            return [item[0] for item in sorted_items[:limit]]
+        except Exception as e:
+            print(f"⚠️ 获取最近记录失败: {e}")
+            return []
+
+    def is_posted(self, movie_name):
+        """[新增] 检查是否已发布 (辅助方法)"""
+        return movie_name in self.history
+
 class XHSClient:
     """HTTP API 客户端"""
     def __init__(self):

@@ -18,7 +18,11 @@ def main():
     # 1. 选题
     topic_agent = TopicAgent()
     movie = topic_agent.run()
-    if not movie: return
+    
+    # [修改点] 如果 AI 熔断返回 None，则直接退出程序
+    if not movie: 
+        print("👋 流程结束。")
+        return
     
     # 2. 创作
     writer_agent = WriterAgent()
@@ -34,10 +38,14 @@ def main():
     exec_agent = ExecutionAgent()
     success = exec_agent.run(note_data, imgs)
     
-    # 5. 记录历史
+    # 5. 记录历史 & 清理待办
     if success:
         history_mgr.save(movie)
+        # [修改点] 只有发布成功才删除 pending.txt 中的条目
+        topic_agent.finish_pending(movie)
         print("\n🎉 任务完成！所有文件已归档。")
+    else:
+        print("\n❌ 发布失败，未归档，Pending 任务保留。")
 
 if __name__ == "__main__":
     main()
