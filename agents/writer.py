@@ -24,7 +24,6 @@ class WriterAgent:
         }
         
         # 随机抽取本轮使用的 Emoji (打包传入后续处理函数)
-        # [注] 这里改为字典存储是为了方便在 _assemble_content 中复用，保证多次拼接时 Emoji 一致
         selected_emojis = {
             "archive": random.choice(emoji_bank["archive"]),
             "honor":   random.choice(emoji_bank["honor"]),
@@ -103,8 +102,11 @@ class WriterAgent:
             data = json.loads(clean_json)
             
             # === 4. 智能篇幅控制 (Sanitize Content) ===
-            # 在这里处理字数超标问题，直接修改 data 对象
-            self._sanitize_content(data, selected_emojis)
+            # [修改点] 改为接收返回值，如果返回 False 则说明处理失败(如标题过长)
+            is_valid = self._sanitize_content(data, selected_emojis)
+            
+            if not is_valid:
+                return None
 
             # === 5. 组装最终正文 ===
             final_content = self._assemble_content(data, selected_emojis)
@@ -121,7 +123,7 @@ class WriterAgent:
 
     def _assemble_content(self, data, emojis):
         """
-        将 JSON 数据组装成最终的文本字符串 (提取自原版逻辑，改为函数以支持重复调用)
+        将 JSON 数据组装成最终的文本字符串
         """
         basic = data['basic_info']
         cast = data['cast_info']
@@ -198,28 +200,59 @@ class WriterAgent:
             data['tags'] = data['tags'][:10]
             # print(f"   ✂️ [Tags] 已截取前 10 个")
 
-        # --- 2. 标题智能处理 ---
-        # 优先去空格
+        # --- 2. 标题智能处理 (循环重试版) ---
         original_title = data['title']
-        clean_title = original_title.replace(" ", "")
+        clean_title = original_title.replace(" ", "") # 预处理：先尝试去空格
         
-        if self._count(clean_title) <= 20:
+        current_len = self._count(clean_title)
+        
+        # 如果去空格后已经合格，直接采纳
+        if current_len <= 20:
             data['title'] = clean_title
         else:
-            # AI 重写 (保留Emoji)
-            print(f"   ⚠️ 标题超长 ({self._count(clean_title)}字)，正在让 AI 重新构思短标题...")
-            prompt = f"""
-            请将标题“{original_title}”改写为 **20字以内**。
-            要求：
-            1. 必须保留原有的 Emoji（如果有）。
-            2. 保持原意，但用词更精简。
-            3. 直接返回新标题，不要解释。
-            """
-            new_title = self.brain.think(prompt, system_prompt="你是一个擅长起短标题的小红书博主。")
-            if new_title:
-                data['title'] = new_title.strip().replace('"', '')
+            # 需要重写
+            retry_count = 0
+            max_retries = getattr(config, 'MAX_TITLE_RETRIES', 3)
+            
+            while retry_count < max_retries:
+                print(f"   ⚠️ 标题超长 ({current_len}字)，正在第 {retry_count+1} 次尝试重写...")
+                
+                # 动态构建 Prompt
+                extra_instruction = ""
+                if retry_count > 0:
+                    extra_instruction = f"警告：上一次你写的还是太长了（{current_len}字），请务必更短一点！"
+                    
+                prompt = f"""
+                请将标题“{original_title}”改写为 **20字以内**。
+                要求：
+                1. 必须保留原有的 Emoji（如果有）。
+                2. 保持原意，但用词更精简。
+                3. 直接返回新标题，不要解释。
+                {extra_instruction}
+                """
+                
+                new_title = self.brain.think(prompt, system_prompt="你是一个擅长起短标题的小红书博主。")
+                
+                if new_title:
+                    clean_new_title = new_title.strip().replace('"', '').replace(" ", "")
+                    new_len = self._count(clean_new_title)
+                    
+                    if new_len <= 20:
+                        data['title'] = clean_new_title
+                        print(f"      ✅ 标题优化成功: {clean_new_title}")
+                        break # 成功跳出
+                    else:
+                        current_len = new_len # 更新长度，供下一次 Log 使用
+                
+                retry_count += 1
+            
+            # 循环结束后再次检查
+            final_len = self._count(data.get('title', ''))
+            if final_len > 20:
+                print(f"❌ [Writer] 标题重写失败，经过 {max_retries} 次尝试后仍超长 ({final_len}字)。")
+                return False # 熔断，返回失败
 
-        # --- 3. 正文多级防御 ---
+        # --- 3. 正文多级防御 (保持原逻辑) ---
         # 预先定义重写顺序：(字段名, 中文名)
         rewrite_steps = [
             ('highlight_expansion', '深度发散'),
@@ -277,7 +310,9 @@ class WriterAgent:
             # === Level 3: 尽力而为 ===
             print(f"   ⚠️ 经过所有缩减努力，正文依然略长 ({current_len}字)。保留当前版本。")
             break
-
+        
+        return True # 如果能走到这里，说明标题和正文都处理完毕（正文是尽力而为）
+    
     def _fetch_tmdb_reviews(self, movie_name):
         if not self.tmdb_key: return []
         try:

@@ -37,3 +37,6 @@ API_BASE_URL = "http://localhost:18060/api/v1"
 # ================= 算法参数 =================
 # CLIP 语义去重阈值 (越接近1越严格)
 CLIP_THRESHOLD = 0.75
+
+# 标题重写最大重试次数
+MAX_TITLE_RETRIES = 3
