@@ -53,6 +53,7 @@ class VisualAgent:
 
         # --- 阶段 1: 强制获取 1 张竖版封面 ---
         print("   1️⃣ [人工模式] 正在获取 TMDB 竖版封面...")
+        # 封面后缀统一为 cover_tmdb
         cover_path = self._fetch_best_vertical_cover(tmdb_data, movie_name)
         if not cover_path:
             print("   ❌ [Fatal] TMDB 未找到合适的竖版海报，程序终止。")
@@ -93,6 +94,7 @@ class VisualAgent:
         # 2. 降级 Google
         if self.search_key:
             print("   ⚠️ 降级使用 Google 搜索...")
+            # 保持原版 Google 搜索的后缀逻辑
             self._google_search(f"{movie_name} 电影海报 高清", 1, "cover", local_paths)
             self._google_search(f"{movie_name} 电影剧照 唯美", 8, "still", local_paths)
         
@@ -139,6 +141,7 @@ class VisualAgent:
         best = zh_posters[0] if zh_posters else other_posters[0]
         
         # 下载并处理 (check_dedup=False, 因为它是第一张)
+        # 后缀统一为 cover_tmdb
         return self._download_and_process(base_url + best["file_path"], movie_name, "cover_tmdb", check_dedup=False)
 
     def _load_manual_files(self, manual_dir, movie_name):
@@ -186,6 +189,7 @@ class VisualAgent:
             if len(paths) >= count: break
             
             # 下载并处理 (开启 check_dedup)
+            # [修正] 后缀恢复为 still_tmdb_{i}
             saved_path = self._download_and_process(
                 base_url + item["file_path"], 
                 movie_name, 
@@ -219,12 +223,13 @@ class VisualAgent:
         
         for i, item in enumerate(candidates):
             if len(paths) >= limit: break
-            p = self._download_and_process(base_url + item["file_path"], movie_name, f"still_auto_{i}", check_dedup=True)
+            # [修正] 后缀恢复为 still_tmdb_{i}
+            p = self._download_and_process(base_url + item["file_path"], movie_name, f"still_tmdb_{i}", check_dedup=True)
             if p: paths.append(p)
             
         return paths
 
-    def _download_and_process(self, url, movie_name, suffix, check_dedup=True):
+    def _download_and_process(self, url, prefix, suffix, check_dedup=True):
         """通用下载器：下载 -> 调用 _process_image_obj"""
         try:
             resp = requests.get(url, timeout=15)
@@ -233,11 +238,11 @@ class VisualAgent:
             # 临时将字节流转为 Image 对象
             from io import BytesIO
             img = Image.open(BytesIO(resp.content))
-            return self._process_image_obj(img, movie_name, suffix, check_dedup)
+            return self._process_image_obj(img, prefix, suffix, check_dedup)
         except:
             return None
 
-    def _process_image_obj(self, img_obj, movie_name, suffix, check_dedup=True):
+    def _process_image_obj(self, img_obj, prefix, suffix, check_dedup=True):
         """
         核心处理逻辑：
         1. 格式统一转 RGB
@@ -253,7 +258,7 @@ class VisualAgent:
             
             # 2. 去重检查
             if check_dedup and self._is_semantically_duplicate(curr_emb):
-                print(f"      🚫 [CLIP] 语义重复已剔除: {suffix}")
+                print(f"   🚫 [CLIP] 语义重复已剔除: {suffix}")
                 return None
             
             # 3. 录入指纹 (如果不是 None)
@@ -261,11 +266,13 @@ class VisualAgent:
                 self.downloaded_embeddings.append(curr_emb)
             
             # 4. 保存文件
-            name = f"{suffix}_{int(time.time())}.jpg"
+            # [修正] 恢复原版文件名格式: {prefix}_{suffix}_{time}.jpg
+            name = f"{prefix}_{suffix}_{int(time.time())}.jpg"
             save_path = os.path.join(config.LOCAL_IMAGE_DIR, name)
             img.save(save_path, format="JPEG", quality=95)
             
-            # print(f"      ⬇️ 已保存: {suffix}") 
+            # [修正] 恢复成功日志
+            print(f"   ⬇️ [CLIP] 下载并保留: {suffix}")
             return save_path
             
         except Exception as e:
@@ -280,6 +287,7 @@ class VisualAgent:
             payload = json.dumps({"q": query, "gl": "cn", "num": num})
             resp = requests.post(url, headers=headers, data=payload)
             for i, item in enumerate(resp.json().get("images", [])):
+                # [注意] 这里 prefix 传入 query (例如 "电影名 海报"), 与原版逻辑一致
                 p = self._download_and_process(item['imageUrl'], query, f"{suffix}_{i}", check_dedup=True)
                 if p: paths.append(p)
         except: pass
@@ -289,14 +297,29 @@ class VisualAgent:
             inputs = self.clip_processor(images=image, return_tensors="pt")
             with torch.no_grad():
                 outputs = self.clip_model.get_image_features(**inputs)
+                
+                # === [修复] 恢复了完整的兼容性判断逻辑，确保健壮性 ===
                 if not isinstance(outputs, torch.Tensor):
-                    outputs = outputs[0]
-            return outputs / outputs.norm(p=2, dim=-1, keepdim=True)
-        except: return None
+                    if hasattr(outputs, 'image_embeds'):
+                        outputs = outputs.image_embeds
+                    elif hasattr(outputs, 'pooler_output'):
+                        outputs = outputs.pooler_output
+                    else:
+                        outputs = outputs[0]
+                # ==================================================
+                        
+            embedding = outputs / outputs.norm(p=2, dim=-1, keepdim=True)
+            return embedding
+        except Exception as e:
+            print(f"   ⚠️ Embedding 计算失败: {e}")
+            return None
 
     def _is_semantically_duplicate(self, current_embedding):
-        if not self.downloaded_embeddings or current_embedding is None:
+        if not self.downloaded_embeddings:
             return False
+        if current_embedding is None:
+            return False
+
         for saved_emb in self.downloaded_embeddings:
             similarity = (current_embedding @ saved_emb.T).item()
             if similarity > config.CLIP_THRESHOLD:
