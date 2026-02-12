@@ -1,16 +1,15 @@
-# 文件名: main.py
+# 文件名: little_red/main.py
 import os
-# 设置 Hugging Face 镜像地址
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 from agents.topic import TopicAgent
 from agents.writer import WriterAgent
 from agents.visual import VisualAgent
 from agents.execution import ExecutionAgent
-from utils import HistoryManager
+from utils import HistoryManager, MetaFetcher # 引入新工具
 
 def main():
-    print("🤖 === 小红书电影号自动运营 (模块化企业版) === ")
+    print("🤖 === 小红书电影号自动运营 (v2.1 混合增强版) === ")
     
     # 0. 初始化
     history_mgr = HistoryManager()
@@ -19,14 +18,18 @@ def main():
     topic_agent = TopicAgent()
     movie = topic_agent.run()
     
-    # [修改点] 如果 AI 熔断返回 None，则直接退出程序
     if not movie: 
         print("👋 流程结束。")
         return
     
-    # 2. 创作
+    # [新增] 1.5 数据猎手: 获取真实评分
+    # 这是连接 Topic 和 Writer 的桥梁
+    meta_fetcher = MetaFetcher()
+    meta_data = meta_fetcher.fetch_all(movie)
+    
+    # 2. 创作 (传入 meta_data)
     writer_agent = WriterAgent()
-    note_data = writer_agent.run(movie)
+    note_data = writer_agent.run(movie, meta_data) # 传入
     if not note_data: return
     
     # 3. 视觉 (含 CLIP 去重)
@@ -41,7 +44,6 @@ def main():
     # 5. 记录历史 & 清理待办
     if success:
         history_mgr.save(movie)
-        # [修改点] 只有发布成功才删除 pending.txt 中的条目
         topic_agent.finish_pending(movie)
         print("\n🎉 任务完成！所有文件已归档。")
     else:
