@@ -1,4 +1,4 @@
-# 文件名: config.py
+# 文件名: little_red/config.py
 import os
 from dotenv import load_dotenv
 
@@ -28,8 +28,10 @@ if not os.path.exists(LOCAL_IMAGE_DIR):
 # ================= API 密钥配置 =================
 LLM_API_KEY = os.getenv("LLM_API_KEY")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepseek.com")
-SEARCH_API_KEY = os.getenv("SEARCH_API_KEY")
+SEARCH_API_KEY = os.getenv("SEARCH_API_KEY") # Google Search / Serper
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+OMDB_API_KEY = os.getenv("OMDB_API_KEY")     # [新增] OMDB Key
+SERPER_API_KEY = os.getenv("SERPER_API_KEY") # [新增] Serper Key
 
 # 小红书 API 地址
 API_BASE_URL = "http://localhost:18060/api/v1"

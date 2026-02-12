@@ -1,4 +1,4 @@
-# 文件名: agents/writer.py
+# 文件名: little_red/agents/writer.py
 import json
 import requests
 import random
@@ -6,14 +6,16 @@ import config
 from utils import LLMBrain
 
 class WriterAgent:
-    """✍️ 文案 Agent (随机Emoji + 去粗体 + 深度发散 + 智能篇幅控制)"""
+    """✍️ 文案 Agent (数据驱动版 - 严格保留原版 Prompt 风味)"""
     def __init__(self):
         self.tmdb_key = config.TMDB_API_KEY
         self.brain = LLMBrain()
 
-    def run(self, movie_name):
-        print(f"\n✍️ [2/5 WriterAgent] 正在撰写高级感文案...")
+    def run(self, movie_name, meta_data=None):
+        print(f"\n✍️ [2/5 WriterAgent] 正在撰写高级感文案 (注入真实评分数据)...")
         
+        if meta_data is None: meta_data = {}
+
         # === 1. 准备随机 Emoji 盲盒 ===
         emoji_bank = {
             "archive": ["🎞️", "📼", "💿", "📀", "📁", "📂", "📽️", "📺", "📻", "💽", "🔖"],
@@ -23,7 +25,6 @@ class WriterAgent:
             "comment": ["💡", "🧩", "📌", "📍", "📡", "🔔", "📣", "📝", "🤔"]
         }
         
-        # 随机抽取本轮使用的 Emoji (打包传入后续处理函数)
         selected_emojis = {
             "archive": random.choice(emoji_bank["archive"]),
             "honor":   random.choice(emoji_bank["honor"]),
@@ -39,10 +40,20 @@ class WriterAgent:
             review_context = f"【真实TMDB评论素材(仅供参考)】：\n{json.dumps(real_reviews, ensure_ascii=False)}"
         else:
             review_context = "【无真实评论】：**请不要生成 hot_comments 字段**。"
+            
+        # === 3. 构建 Prompt (严格恢复原版) ===
+        # 准备真实数据注入 (移除不稳定的烂番茄观众分)
+        score_info_str = (
+            f"豆瓣评分: {meta_data.get('douban', 'N/A')} | "
+            f"IMDb评分: {meta_data.get('imdb', 'N/A')} | "
+            f"烂番茄新鲜度(影评人): {meta_data.get('rotten_tomatoes', 'N/A')} | "
+            f"Metacritic: {meta_data.get('metacritic', 'N/A')} | "
+            f"年份: {meta_data.get('year', '')}"
+        )
 
-        # === 3. 构建 Prompt (已完全恢复原始 Prompt) ===
         prompt = f"""
         请为电影《{movie_name}》写一篇排版精美、有高级感的小红书笔记。
+        【参考数据 (请优先使用)】：{score_info_str}
         {review_context}
         
         【核心指令】：
@@ -101,15 +112,14 @@ class WriterAgent:
             clean_json = response.replace("```json", "").replace("```", "").strip()
             data = json.loads(clean_json)
             
-            # === 4. 智能篇幅控制 (Sanitize Content) ===
-            # [修改点] 改为接收返回值，如果返回 False 则说明处理失败(如标题过长)
-            is_valid = self._sanitize_content(data, selected_emojis)
+            # === 4. 智能篇幅控制 ===
+            is_valid = self._sanitize_content(data, selected_emojis, meta_data)
             
             if not is_valid:
                 return None
 
             # === 5. 组装最终正文 ===
-            final_content = self._assemble_content(data, selected_emojis)
+            final_content = self._assemble_content(data, selected_emojis, meta_data)
             
             return {
                 "title": data['title'],
@@ -121,58 +131,80 @@ class WriterAgent:
             print(f"❌ 文案解析失败: {e}")
             return None
 
-    def _assemble_content(self, data, emojis):
+    def _assemble_content(self, data, emojis, meta_data):
         """
-        将 JSON 数据组装成最终的文本字符串
+        将 JSON 数据组装成最终的文本字符串 (双行评分版)
         """
         basic = data['basic_info']
         cast = data['cast_info']
         
-        # 1. 档案区
-        score_part = f"豆瓣 {basic['douban_score']}"
-        if basic.get('imdb_score'):
-            score_part += f"  |  IMDb {basic['imdb_score']}"
+        # --- 1. 档案区 (重构：双行评分) ---
+        line1_parts = []
+        if meta_data.get('douban') and meta_data['douban'] != 'N/A':
+            line1_parts.append(f"豆瓣 {meta_data['douban']}")
+        elif basic.get('douban_score'): # 兜底
+             line1_parts.append(f"豆瓣 {basic['douban_score']}")
+
+        if meta_data.get('imdb') and meta_data['imdb'] != 'N/A':
+            line1_parts.append(f"IMDb {meta_data['imdb']}")
+        elif basic.get('imdb_score'): # 兜底
+             line1_parts.append(f"IMDb {basic['imdb_score']}")
         
-        header_section = (
-            f"{emojis['archive']} 影片档案\n"
-            f"{score_part}\n"
-            f"{basic['country']} ({basic['release_date']})  |  {basic['genre']}\n\n"
-        )
+        line1 = "  |  ".join(line1_parts)
         
-        # 2. 荣誉区
+        # [修改] 第二行固定为：🍅 烂番茄 91% | Ⓜ️ MTC 80
+        line2_parts = []
+        if meta_data.get('rotten_tomatoes') and meta_data['rotten_tomatoes'] != 'N/A':
+            line2_parts.append(f"🍅 烂番茄 {meta_data['rotten_tomatoes']}")
+            
+        if meta_data.get('metacritic') and meta_data['metacritic'] != 'N/A':
+            line2_parts.append(f"Ⓜ️ MTC {meta_data['metacritic']}")
+            
+        line2 = "  |  ".join(line2_parts)
+        
+        header_section = f"{emojis['archive']} 影片档案\n"
+        if line1: header_section += f"{line1}\n"
+        if line2: header_section += f"{line2}\n"
+        
+        year_str = meta_data.get('year') or basic.get('release_date', '')
+        country_str = basic.get('country', '')
+        genre_str = basic.get('genre', '')
+        
+        info_line = country_str
+        if year_str: info_line += f" ({year_str})"
+        info_line += f"  |  {genre_str}"
+        
+        header_section += f"{info_line}\n\n"
+        
+        # --- 其余部分保持原样 ---
+        
         honor_section = ""
         if data.get('honors') and data['honors'].strip():
             honor_section = f"{emojis['honor']} 荣誉\n{data['honors']}\n\n"
 
-        # 3. 主创区
         cast_section = (
             f"{emojis['cast']} 主创\n"
             f"导演：{cast['director']}\n"
             f"主演：{cast['actors']}\n\n"
         )
 
-        # 4. 简介区
         synopsis_section = f"{data['synopsis']}\n\n"
         
-        # 5. 深度发散区
         highlight_section = ""
         if data.get('highlight_expansion'):
             highlight_section = f"{data['highlight_expansion']}\n\n"
 
-        # 6. 台词区
         quotes_section = ""
         quotes = data.get('quotes', [])
         if quotes:
             quotes_section = f"{emojis['quote']} 台词\n" + "\n".join(quotes) + "\n\n"
 
-        # 7. 评论区
         comments_section = ""
         if data.get('hot_comments'):
             comments = [f"“{c}”" for c in data['hot_comments']]
             comments_str = "\n".join(comments)
             comments_section = f"{emojis['comment']} 关于电影\n{comments_str}\n\n"
         
-        # 8. 结尾
         ending_section = f"{data.get('ending', '评论区告诉我你的想法！👇')}"
 
         return (
@@ -188,36 +220,27 @@ class WriterAgent:
         )
 
     def _count(self, text):
-        """计算字数 (Emoji=1, 空格=1)"""
         return len(text)
 
-    def _sanitize_content(self, data, emojis):
+    def _sanitize_content(self, data, emojis, meta_data):
         """
         🛡️ 内容审查与智能压缩
         """
-        # --- 1. Tags 硬限制 ---
         if len(data.get('tags', [])) > 10:
             data['tags'] = data['tags'][:10]
-            # print(f"   ✂️ [Tags] 已截取前 10 个")
 
-        # --- 2. 标题智能处理 (循环重试版) ---
         original_title = data['title']
-        clean_title = original_title.replace(" ", "") # 预处理：先尝试去空格
-        
+        clean_title = original_title.replace(" ", "")
         current_len = self._count(clean_title)
         
-        # 如果去空格后已经合格，直接采纳
         if current_len <= 20:
             data['title'] = clean_title
         else:
-            # 需要重写
             retry_count = 0
             max_retries = getattr(config, 'MAX_TITLE_RETRIES', 3)
             
             while retry_count < max_retries:
                 print(f"   ⚠️ 标题超长 ({current_len}字)，正在第 {retry_count+1} 次尝试重写...")
-                
-                # 动态构建 Prompt
                 extra_instruction = ""
                 if retry_count > 0:
                     extra_instruction = f"警告：上一次你写的还是太长了（{current_len}字），请务必更短一点！"
@@ -240,48 +263,43 @@ class WriterAgent:
                     if new_len <= 20:
                         data['title'] = clean_new_title
                         print(f"      ✅ 标题优化成功: {clean_new_title}")
-                        break # 成功跳出
+                        break 
                     else:
-                        current_len = new_len # 更新长度，供下一次 Log 使用
+                        current_len = new_len
                 
                 retry_count += 1
             
-            # 循环结束后再次检查
             final_len = self._count(data.get('title', ''))
             if final_len > 20:
                 print(f"❌ [Writer] 标题重写失败，经过 {max_retries} 次尝试后仍超长 ({final_len}字)。")
-                return False # 熔断，返回失败
+                return False
 
-        # --- 3. 正文多级防御 (保持原逻辑) ---
-        # 预先定义重写顺序：(字段名, 中文名)
         rewrite_steps = [
             ('highlight_expansion', '深度发散'),
             ('synopsis', '剧情简介'),
-            ('highlight_expansion', '深度发散'), # 第二轮
+            ('highlight_expansion', '深度发散'), 
             ('synopsis', '剧情简介')
         ]
         step_index = 0
         
         while True:
-            # 实时组装并计算长度
-            current_text = self._assemble_content(data, emojis)
+            # 传入 meta_data
+            current_text = self._assemble_content(data, emojis, meta_data)
             current_len = self._count(current_text)
             
             if current_len <= 1000:
-                break # ✅ 合格
+                break 
                 
-            # === Level 1: 评论区剥离 ===
             comments = data.get('hot_comments', [])
             if comments:
                 if len(comments) >= 2:
                     removed = comments.pop()
                     print(f"   ✂️ [长度优化] 正文超限({current_len}字)，删除 1 条末尾评论...")
                 else:
-                    data['hot_comments'] = [] # 清空
+                    data['hot_comments'] = [] 
                     print(f"   ✂️ [长度优化] 正文仍超限，移除整个评论区板块...")
-                continue # 删完评论后立即重新检查字数
+                continue 
             
-            # === Level 2: AI 交替缩短 (局部重写) ===
             if step_index < len(rewrite_steps):
                 field, name = rewrite_steps[step_index]
                 step_index += 1
@@ -291,29 +309,23 @@ class WriterAgent:
                 origin_text = data.get(field, "")
                 prompt = f"""
                 请将以下这段关于电影的【{name}】内容进行精简。
-                
                 原内容：
                 {origin_text}
-                
-                要求：
-                1. 保留核心看点和逻辑。
-                2. 去除冗余修饰，语言更加紧凑。
-                3. **必须比原来篇幅更短**（不要硬性规定字数，但请尽力压缩）。
-                4. 直接返回修改后的内容，不要标题，不要解释。
+                要求：保留核心看点，语言紧凑，必须比原来篇幅更短。直接返回内容。
                 """
                 
                 new_text = self.brain.think(prompt, system_prompt="你是一个擅长精简文案的编辑。")
                 if new_text:
                     data[field] = new_text.strip().replace('"', '')
-                continue # 重写完后重新检查
+                continue 
             
-            # === Level 3: 尽力而为 ===
             print(f"   ⚠️ 经过所有缩减努力，正文依然略长 ({current_len}字)。保留当前版本。")
             break
         
-        return True # 如果能走到这里，说明标题和正文都处理完毕（正文是尽力而为）
-    
+        return True
+
     def _fetch_tmdb_reviews(self, movie_name):
+        # 保持原样...
         if not self.tmdb_key: return []
         try:
             search_url = "https://api.themoviedb.org/3/search/movie"
