@@ -145,17 +145,27 @@ class MetaFetcher:
             return {}
 
         imdb_id = base_info.get("imdb_id")
+        tmdb_id = base_info.get("tmdb_id") # [保留] 确保获取 TMDB ID
         final_year = base_info.get("year", "")
         official_cn_name = base_info.get("official_cn_title", movie_name) # 获取官方译名
         
         print(f"   ✅ TMDB 锚定成功: ID={imdb_id}, Year={final_year}, 官方中译=《{official_cn_name}》")
+
+        # [新增] 获取票房数据并折算
+        revenue_cny = 0
+        if tmdb_id:
+            revenue_cny = self._get_box_office(tmdb_id)
+            if revenue_cny > 0:
+                # 打印友好的日志
+                print(f"   💰 票房数据获取: 约 {revenue_cny / 100000000:.1f} 亿人民币")
 
         scores = {
             "year": final_year,
             "imdb": "N/A",
             "rotten_tomatoes": "N/A", # 影评人 (OMDB)
             "metacritic": "N/A",
-            "douban": "N/A"
+            "douban": "N/A",
+            "revenue_cny": revenue_cny # [新增] 注入票房数据
         }
 
         # === Step 2: 西方数据 (OMDB) ===
@@ -174,6 +184,12 @@ class MetaFetcher:
             else:
                 print(f"   ⚠️ 豆瓣评分提取失败 (N/A)")
 
+        # === Step 4: [新增] 数据质量熔断检查 (Quality Gate) ===
+        # 要求：豆瓣和IMDb评分至少有一个获取到，否则报错中断
+        if scores.get("douban") == "N/A" and scores.get("imdb") == "N/A":
+            print(f"   ⛔ [熔断] 数据质量不足: 豆瓣({scores['douban']}) 与 IMDb({scores['imdb']}) 均无有效评分。")
+            raise ValueError(f"Data Quality Gate Failed: Movie '{movie_name}' has neither Douban nor IMDb score.")
+        
         return scores
 
     def _resolve_identity(self, movie_name):
@@ -244,6 +260,28 @@ class MetaFetcher:
         except Exception as e:
             print(f"   ⚠️ TMDB Base 获取失败: {e}")
             return None
+
+    def _get_box_office(self, movie_id):
+        """[新增] 获取票房详情并折算为人民币"""
+        try:
+            url = f"https://api.themoviedb.org/3/movie/{movie_id}"
+            params = {"api_key": self.tmdb_key, "language": "zh-CN"}
+            resp = requests.get(url, params=params, timeout=10)
+            data = resp.json()
+            
+            # 获取票房 (USD)
+            revenue_usd = data.get("revenue", 0)
+            
+            if not revenue_usd: 
+                return 0
+            
+            # 汇率折算
+            rate = config.Strategy.Writer.USD_TO_CNY_RATE
+            return int(revenue_usd * rate)
+            
+        except Exception as e:
+            print(f"   ⚠️ 票房获取失败: {e}")
+            return 0
 
     def _get_omdb_scores(self, imdb_id):
         res = {}

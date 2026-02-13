@@ -42,13 +42,31 @@ class WriterAgent:
             review_context = "【无真实评论】：**请不要生成 hot_comments 字段**。"
             
         # === 3. 构建 Prompt (严格恢复原版) ===
+        
+        # [新增] 票房双重门槛处理逻辑
+        revenue_val = meta_data.get('revenue_cny', 0)
+        min_threshold = config.Strategy.Writer.MIN_BOX_OFFICE_CNY
+        force_threshold = config.Strategy.Writer.FORCE_BOX_OFFICE_CNY
+        
+        box_office_str = "N/A"
+        
+        if revenue_val >= force_threshold:
+            # 门槛 B: 超过10亿 -> 必须展示
+            val_in_yi = revenue_val / 100000000
+            box_office_str = f"全球票房约 {val_in_yi:.1f} 亿人民币 (必须展示)"
+        elif revenue_val >= min_threshold:
+            # 门槛 A: 超过1亿 -> 作为替补
+            val_in_yi = revenue_val / 100000000
+            box_office_str = f"全球票房约 {val_in_yi:.1f} 亿人民币 (作为替补)"
+            
         # 准备真实数据注入 (移除不稳定的烂番茄观众分)
         score_info_str = (
             f"豆瓣评分: {meta_data.get('douban', 'N/A')} | "
             f"IMDb评分: {meta_data.get('imdb', 'N/A')} | "
             f"烂番茄新鲜度(影评人): {meta_data.get('rotten_tomatoes', 'N/A')} | "
             f"Metacritic: {meta_data.get('metacritic', 'N/A')} | "
-            f"年份: {meta_data.get('year', '')}"
+            f"年份: {meta_data.get('year', '')} | "
+            f"票房: {box_office_str}"  # [新增] 注入带标签的票房
         )
 
         prompt = f"""
@@ -59,7 +77,11 @@ class WriterAgent:
         【核心指令】：
         1. **简介流畅化 (分段)**：synopsis 字段请写一段引人入胜的剧情叙述（约150-200字）。**为了阅读舒适，请务必使用换行符将内容分成 2 个自然段**，不要堆成一大块。不要剧透核心谜底，重点营造氛围。
         
-        2. **荣誉高光 (宁缺毋滥)**：honors 字段**只输出重磅奖项**(如奥斯卡/金球/戛纳/柏林/威尼斯)或**影史地位**(如IMDb Top 250)。**如果没有此类顶级荣誉，请直接返回空字符串""**。
+        2. **荣誉高光 (宁缺毋滥)**：honors 字段请优先输出重磅奖项(如奥斯卡/金球/戛纳/柏林/威尼斯)或影史地位(如IMDb Top 250)。
+           **关键规则**：请观察传入的【票房数据】后的备注。
+           1. 如果备注是 **(必须展示)**：无论有没有奖项，都**必须**将票房写在荣誉里（例如 "奥斯卡最佳影片 / 全球票房破 20 亿"）。
+           2. 如果备注是 **(作为替补)**：只有在没有重磅奖项时，才输出票房。
+           3. 否则，如果票房无效且无奖项，直接返回空字符串""。
         
         3. **深度发散 (Highlight Expansion)**：
            请从电影的【影史地位 / 美学视听 / 卡司幕后 / 题材视野】中挑选**最值得谈论的一个特色**，生成 highlight_expansion 字段 (100-200字)。
@@ -138,27 +160,35 @@ class WriterAgent:
         basic = data['basic_info']
         cast = data['cast_info']
         
-        # --- 1. 档案区 (重构：双行评分) ---
+        # --- 1. 档案区 (重构：动态积木) ---
         line1_parts = []
-        if meta_data.get('douban') and meta_data['douban'] != 'N/A':
-            line1_parts.append(f"豆瓣 {meta_data['douban']}")
-        elif basic.get('douban_score'): # 兜底
+        
+        # 豆瓣 (优先用真实数据，若无则尝试用 AI 生成数据，但若均为 N/A 则不显示)
+        douban_val = meta_data.get('douban')
+        if douban_val and douban_val != 'N/A':
+            line1_parts.append(f"豆瓣 {douban_val}")
+        elif basic.get('douban_score') and basic['douban_score'] != 'N/A':
              line1_parts.append(f"豆瓣 {basic['douban_score']}")
 
-        if meta_data.get('imdb') and meta_data['imdb'] != 'N/A':
-            line1_parts.append(f"IMDb {meta_data['imdb']}")
-        elif basic.get('imdb_score'): # 兜底
+        # IMDb
+        imdb_val = meta_data.get('imdb')
+        if imdb_val and imdb_val != 'N/A':
+            line1_parts.append(f"IMDb {imdb_val}")
+        elif basic.get('imdb_score') and basic['imdb_score'] != 'N/A':
              line1_parts.append(f"IMDb {basic['imdb_score']}")
         
         line1 = "  |  ".join(line1_parts)
         
-        # [修改] 第二行固定为：🍅 烂番茄 91% | Ⓜ️ MTC 80
+        # [修改] 第二行 (烂番茄 / MTC) - 同样采用动态显示，不显示 N/A
         line2_parts = []
-        if meta_data.get('rotten_tomatoes') and meta_data['rotten_tomatoes'] != 'N/A':
-            line2_parts.append(f"🍅 烂番茄 {meta_data['rotten_tomatoes']}")
+        
+        rt_val = meta_data.get('rotten_tomatoes')
+        if rt_val and rt_val != 'N/A':
+            line2_parts.append(f"🍅 烂番茄 {rt_val}")
             
-        if meta_data.get('metacritic') and meta_data['metacritic'] != 'N/A':
-            line2_parts.append(f"Ⓜ️ MTC {meta_data['metacritic']}")
+        mtc_val = meta_data.get('metacritic')
+        if mtc_val and mtc_val != 'N/A':
+            line2_parts.append(f"Ⓜ️ MTC {mtc_val}")
             
         line2 = "  |  ".join(line2_parts)
         
@@ -237,7 +267,8 @@ class WriterAgent:
             data['title'] = clean_title
         else:
             retry_count = 0
-            max_retries = getattr(config, 'MAX_TITLE_RETRIES', 3)
+            # [修改] 使用 Strategy 中的配置
+            max_retries = config.Strategy.Writer.MAX_TITLE_RETRIES
             
             while retry_count < max_retries:
                 print(f"   ⚠️ 标题超长 ({current_len}字)，正在第 {retry_count+1} 次尝试重写...")
