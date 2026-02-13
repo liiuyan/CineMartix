@@ -1,5 +1,6 @@
 # 文件名: little_red/main.py
 import os
+import config # [新增] 引入配置以读取开关
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 from agents.topic import TopicAgent
@@ -31,6 +32,25 @@ def main():
     writer_agent = WriterAgent()
     note_data = writer_agent.run(movie, meta_data) # 传入
     if not note_data: return
+
+    # === 🛑 [新增] 人工介入环节 (Human-in-the-loop) ===
+    # 只有在 config 开启，且文案生成成功时才触发
+    if config.Strategy.Writer.MANUAL_TITLE_REVIEW and note_data and "title" in note_data:
+        print(f"\n✋ [人工审核] AI 拟定的标题是：【{note_data['title']}】")
+        
+        # 程序在此暂停，等待键盘输入
+        print("   👉 按回车(Enter)直接使用，或输入新标题覆盖：")
+        user_input = input("   > ").strip()
+        
+        if user_input:
+            # 如果输入了新标题，则覆盖
+            old_title = note_data['title']
+            note_data['title'] = user_input
+            print(f"   ✅ 标题已修订：'{old_title}' -> '{user_input}'")
+        else:
+            # 如果直接回车，则放行
+            print(f"   ✅ 确认使用 AI 标题，继续执行...")
+    # ==================================================
     
     # 3. 视觉 (含 CLIP 去重)
     visual_agent = VisualAgent()

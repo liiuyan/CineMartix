@@ -42,7 +42,7 @@ class VisualAgent:
         逻辑：
         1. 强制 TMDB 竖版封面 (1张) -> 失败则退出
         2. 人工素材 (N张) -> 全盘照收，格式转 JPG
-        3. TMDB 剧照补充 (10 - 1 - N) -> CLIP 严格去重
+        3. TMDB 剧照补充 (Target - 1 - N) -> CLIP 严格去重
         """
         final_paths = []
         tmdb_data = self._get_tmdb_images_json(movie_name)
@@ -69,23 +69,28 @@ class VisualAgent:
         print(f"      ✅ 已加载 {len(manual_paths)} 张人工图片")
 
         # --- 阶段 3: 自动补充剧照 ---
-        needed = 10 - len(final_paths)
+        # [修改] 读取配置的目标数量
+        target_count = config.Strategy.Visual.TARGET_TOTAL_IMAGES
+        needed = target_count - len(final_paths)
+        
         if needed > 0:
             print(f"   3️⃣ [人工模式] 需要补充 {needed} 张剧照 (Backdrops)...")
             supplement_paths = self._fetch_backdrops_with_dedup(tmdb_data, movie_name, needed)
             final_paths.extend(supplement_paths)
         else:
-            print("   3️⃣ [人工模式] 图片数量已充足，无需自动补充。")
+            print(f"   3️⃣ [人工模式] 图片数量已充足，无需自动补充。")
 
         return final_paths
 
     # ================= 核心模式 B: 自动兜底模式 (原逻辑) =================
     def _run_auto_mode(self, movie_name):
         local_paths = []
+        # [修改] 读取配置的目标数量
+        target_count = config.Strategy.Visual.TARGET_TOTAL_IMAGES
         
-        # 1. 优先 TMDB (下载 10 张)
+        # 1. 优先 TMDB (下载 Target 张)
         if self.tmdb_key:
-            tmdb_paths = self._fetch_from_tmdb_auto(movie_name, limit=10)
+            tmdb_paths = self._fetch_from_tmdb_auto(movie_name, limit=target_count)
             if tmdb_paths:
                 local_paths.extend(tmdb_paths)
                 print(f"   ✅ TMDB 获取成功: {len(local_paths)} 张")
@@ -95,8 +100,10 @@ class VisualAgent:
         if self.search_key:
             print("   ⚠️ 降级使用 Google 搜索...")
             # 保持原版 Google 搜索的后缀逻辑
+            # [修改] 动态计算剧照数量 (总数 - 1张封面)
+            still_count = max(1, target_count - 1)
             self._google_search(f"{movie_name} 电影海报 高清", 1, "cover", local_paths)
-            self._google_search(f"{movie_name} 电影剧照 唯美", 8, "still", local_paths)
+            self._google_search(f"{movie_name} 电影剧照 唯美", still_count, "still", local_paths)
         
         return local_paths
 
@@ -257,6 +264,7 @@ class VisualAgent:
             curr_emb = self._get_clip_embedding(img)
             
             # 2. 去重检查
+            # [修改] 读取配置的阈值
             if check_dedup and self._is_semantically_duplicate(curr_emb):
                 print(f"   🚫 [CLIP] 语义重复已剔除: {suffix}")
                 return None
@@ -322,6 +330,7 @@ class VisualAgent:
 
         for saved_emb in self.downloaded_embeddings:
             similarity = (current_embedding @ saved_emb.T).item()
-            if similarity > config.CLIP_THRESHOLD:
+            # [修改] 读取配置的阈值
+            if similarity > config.Strategy.Visual.CLIP_THRESHOLD:
                 return True 
         return False
