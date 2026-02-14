@@ -51,7 +51,9 @@ def main():
 
     # === Step 4: 视觉素材 (Visual) ===
     visual_agent = VisualAgent()
-    image_paths = visual_agent.run(movie_name)
+    # [Plan B] 传递 TMDB ID，确保视觉素材与选题一致
+    target_id = meta_data.get('tmdb_id')
+    image_paths = visual_agent.run(movie_name, tmdb_id=target_id)
     
     if not image_paths or len(image_paths) == 0:
         print("❌ 视觉素材不足 (未找到封面或人工素材缺失)，终止流程。")
@@ -76,10 +78,14 @@ def main():
     execution_agent = ExecutionAgent()
     success = execution_agent.run(note_data, image_paths)
     
-    # === 收尾: 记录历史 ===
+    # === 收尾: 记录历史 & 清理待办 ===
     if success:
         history = HistoryManager()
         history.save(movie_name)
+        
+        # [Fix] 核心修复：调用 TopicAgent 移除 pending 列表中的对应项
+        topic_agent.finish_pending(movie_name)
+        
         print(f"\n🎉 恭喜！《{movie_name}》发布流程圆满完成！")
     else:
         print(f"\n❌ 发布失败，请检查 'xiaohongshu-mcp' 服务日志。")

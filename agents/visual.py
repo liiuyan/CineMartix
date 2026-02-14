@@ -32,12 +32,13 @@ class VisualAgent:
         self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
         print("   ✅ CLIP 模型就绪")
 
-    def run(self, movie_name: str) -> list | None:
+    def run(self, movie_name: str, tmdb_id: int = None) -> list | None:
         """
         执行视觉素材获取主流程。
         
         Args:
             movie_name (str): 电影名称。
+            tmdb_id (int): [Plan B] 上游锁定的 TMDB ID。
             
         Returns:
             list | None: 成功返回本地图片路径列表，失败返回 None。
@@ -50,13 +51,13 @@ class VisualAgent:
         
         if os.path.exists(manual_dir) and os.path.isdir(manual_dir):
             print(f"   📂 发现人工素材库: {manual_dir}")
-            return self._run_manual_mode(movie_name, manual_dir)
+            return self._run_manual_mode(movie_name, manual_dir, tmdb_id)
         else:
             print(f"   🤖 未发现人工素材，进入自动兜底模式...")
-            return self._run_auto_mode(movie_name)
+            return self._run_auto_mode(movie_name, tmdb_id)
 
     # ================= 核心模式 A: 人工混合模式 =================
-    def _run_manual_mode(self, movie_name: str, manual_dir: str) -> list | None:
+    def _run_manual_mode(self, movie_name: str, manual_dir: str, tmdb_id: int = None) -> list | None:
         """
         人工混合模式 (Manual Mixed Mode)
         
@@ -66,7 +67,7 @@ class VisualAgent:
         3. TMDB 剧照补充 -> 仅当人工素材不足 Target 数量时触发，且进行严格 CLIP 去重。
         """
         final_paths = []
-        tmdb_data = self._get_tmdb_images_json(movie_name)
+        tmdb_data = self._get_tmdb_images_json(movie_name, tmdb_id)
         
         if not tmdb_data:
             print("   ❌ [Fatal] 无法获取 TMDB 数据，人工模式无法启动 (需要下载封面)。")
@@ -104,7 +105,7 @@ class VisualAgent:
         return final_paths
 
     # ================= 核心模式 B: 自动兜底模式 (原逻辑) =================
-    def _run_auto_mode(self, movie_name: str) -> list:
+    def _run_auto_mode(self, movie_name: str, tmdb_id: int = None) -> list:
         """
         自动兜底模式 (Auto Mode)
         
@@ -118,7 +119,7 @@ class VisualAgent:
         
         # 1. 优先 TMDB (下载 Target 张)
         if self.tmdb_key:
-            tmdb_paths = self._fetch_from_tmdb_auto(movie_name, limit=target_count)
+            tmdb_paths = self._fetch_from_tmdb_auto(movie_name, target_count, tmdb_id)
             if tmdb_paths:
                 local_paths.extend(tmdb_paths)
                 print(f"   ✅ TMDB 获取成功: {len(local_paths)} 张")
@@ -137,20 +138,42 @@ class VisualAgent:
 
     # ================= 功能函数 =================
 
-    def _get_tmdb_images_json(self, movie_name: str) -> dict | None:
+    def _get_tmdb_images_json(self, movie_name: str, tmdb_id: int = None) -> dict | None:
         """获取 TMDB 图片原始数据 (Posters + Backdrops)"""
         if not self.tmdb_key: return None
         try:
-            # 1. 搜 Movie ID
-            search_url = "https://api.themoviedb.org/3/search/movie"
-            resp = requests.get(search_url, params={"api_key": self.tmdb_key, "query": movie_name, "language": "zh-CN"})
-            results = resp.json().get("results", [])
-            if not results: return None
-            movie_id = results[0]["id"]
+            movie_id = None
+            
+            # [Plan B] 优先使用传入的 ID，不再自己搜索
+            if tmdb_id:
+                movie_id = tmdb_id
+                print(f"   🆔 [Visual] 使用 MetaFetcher 锁定的 TMDB ID: {movie_id}")
+            else:
+                print(f"   ⚠️ [Visual] 未收到 ID，降级执行名称搜索: {movie_name}")
+                # 1. 搜 Movie ID
+                search_url = "https://api.themoviedb.org/3/search/movie"
+                resp = requests.get(search_url, params={"api_key": self.tmdb_key, "query": movie_name, "language": "zh-CN"})
+                results = resp.json().get("results", [])
+                if not results: return None
+                movie_id = results[0]["id"]
             
             # 2. 获取所有图片
+            # [Fix] 扩大语言覆盖范围 (null=无文字, zh/en=通用, es/fr/ja...=常见原产国语言)
+            include_langs = "null,zh,en,ja,ko,es,fr,de,it,pt,ru,hi,th"
+            
             img_url = f"https://api.themoviedb.org/3/movie/{movie_id}/images"
-            return requests.get(img_url, params={"api_key": self.tmdb_key, "include_image_language": "null,zh,en"}).json()
+            data = requests.get(img_url, params={
+                "api_key": self.tmdb_key, 
+                "include_image_language": include_langs
+            }).json()
+            
+            # [Debug] 显式打印 API 返回的原始数量，确认数据源头是否充足
+            b_count = len(data.get("backdrops", []))
+            p_count = len(data.get("posters", []))
+            print(f"   📊 [Meta] TMDB API 返回原始数据: 剧照 {b_count} 张, 海报 {p_count} 张")
+            
+            return data
+            
         except Exception as e:
             print(f"   ⚠️ TMDB API 出错: {e}")
             return None
@@ -258,9 +281,9 @@ class VisualAgent:
                 
         return paths
 
-    def _fetch_from_tmdb_auto(self, movie_name: str, limit: int = 10) -> list:
+    def _fetch_from_tmdb_auto(self, movie_name: str, limit: int = 10, tmdb_id: int = None) -> list:
         """原有的自动模式逻辑 (Poster + Backdrops 混杂)"""
-        tmdb_data = self._get_tmdb_images_json(movie_name)
+        tmdb_data = self._get_tmdb_images_json(movie_name, tmdb_id)
         if not tmdb_data: return []
         
         paths = []
@@ -277,11 +300,18 @@ class VisualAgent:
         other_imgs = [x for x in backdrops if x["iso_639_1"] is not None]
         candidates = sorted(null_imgs, key=lambda x: x["vote_average"], reverse=True) + other_imgs
         
+        # [Debug] 打印最终参与下载的候选数量
+        print(f"   📊 [Meta] 筛选后候选池 (Candidates): {len(candidates)} 张 (目标下载: {limit})")
+        
         for i, item in enumerate(candidates):
             if len(paths) >= limit: break
             # [修正] 后缀恢复为 still_tmdb_{i}
             p = self._download_and_process(base_url + item["file_path"], movie_name, f"still_tmdb_{i}", check_dedup=True)
             if p: paths.append(p)
+            
+        # [Fix] 耗尽警告
+        if len(paths) < limit:
+             print(f"   ⚠️ 警告: 素材不足，仅获取到 {len(paths)} 张 (候选池已耗尽或下载失败)。")
             
         return paths
 
@@ -289,13 +319,18 @@ class VisualAgent:
         """通用下载器：下载 -> 调用 _process_image_obj"""
         try:
             resp = requests.get(url, timeout=15)
-            if resp.status_code != 200: return None
+            # [Fix] 显式检查状态码，非200时报错
+            if resp.status_code != 200: 
+                print(f"      ⚠️ 下载请求失败 [{resp.status_code}]: {url}")
+                return None
             
             # 临时将字节流转为 Image 对象
             from io import BytesIO
             img = Image.open(BytesIO(resp.content))
             return self._process_image_obj(img, prefix, suffix, check_dedup)
-        except:
+        except Exception as e:
+            # [Fix] 打印具体异常，防止静默失败
+            print(f"      ⚠️ 下载或处理异常 ({suffix}): {e}")
             return None
 
     def _process_image_obj(self, img_obj, prefix: str, suffix: str, check_dedup: bool = True) -> str | None:

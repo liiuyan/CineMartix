@@ -2,6 +2,7 @@
 import json
 import requests
 import random
+import re
 import config
 from utils import LLMBrain
 
@@ -55,8 +56,10 @@ class WriterAgent:
         }
 
         # === 2. 获取外部素材 ===
-        # 尝试从 TMDB 获取真实评论，若无则注入"禁令"防止 AI 编造。
-        real_reviews = self._fetch_tmdb_reviews(movie_name)
+        # [Plan B] 提取 TMDB ID，传给评论获取函数 (防止找错电影)
+        target_id = meta_data.get('tmdb_id')
+        real_reviews = self._fetch_tmdb_reviews(movie_name, target_id)
+        
         review_context = ""
         if real_reviews:
             review_context = f"【真实TMDB评论素材(仅供参考)】：\n{json.dumps(real_reviews, ensure_ascii=False)}"
@@ -121,7 +124,7 @@ class WriterAgent:
         5. **拒绝模版**：ending 字段请自由发挥，写一段简短、口语化、有共鸣的结尾。
 
         【返回 JSON】：
-        1. title: 标题 (<20字, 必带Emoji)
+        1. title: 标题 (<20字, 必带Emoji, **必须包含电影名《{movie_name}》**)
         
         2. basic_info: 
            {{
@@ -166,9 +169,11 @@ class WriterAgent:
             
             # === 4. 智能篇幅控制 (Sanitization) ===
             # 这里包含标题重写逻辑和正文压缩逻辑
-            is_valid = self._sanitize_content(data, selected_emojis, meta_data)
+            # [Fix] 传入 movie_name，用于标题合规性检查
+            is_valid = self._sanitize_content(data, selected_emojis, meta_data, movie_name)
             
             if not is_valid:
+                print("❌ 文案生成失败：标题始终无法通过合规性检查（长度或缺失片名）。")
                 return None
 
             # === 5. 组装最终正文 ===
@@ -287,100 +292,146 @@ class WriterAgent:
         )
 
     def _count(self, text: str) -> int:
-        """辅助函数：计算字符串长度"""
+        """
+        辅助函数：计算字符串长度 (Unicode 字符计数)
+        空格、中文、Emoji 统一按 1 个字符计算。
+        注意：Python 的 len() 对大多数 Emoji 是 1，对复杂 Emoji 可能是多字符，
+        这里为了简单高效，直接使用 len()，符合一般直觉。
+        """
         return len(text)
 
-    def _sanitize_content(self, data: dict, emojis: dict, meta_data: dict) -> bool:
+    def _sanitize_content(self, data: dict, emojis: dict, meta_data: dict, movie_name: str) -> bool:
         """
         🛡️ 内容审查与智能压缩 (Sanitization Pipeline)
         
-        流程:
-        1. 标签数量限制 (Max 10).
-        2. 标题长度检测 (Max 20字):
-           - 若超长，根据配置 (ENABLE_TITLE_EMOJI) 动态生成重写指令。
-           - 执行 "先删废话 -> 再删书名号 -> (可选)删Emoji" 的降级策略。
-        3. 正文篇幅控制 (Max 1000字):
-           - 优先删除评论区。
-           - 其次递归压缩 '深度发散' 和 '剧情简介'。
+        【标题漏斗逻辑】：
+        1. 预处理：删除所有空格。
+        2. 第一关：检测是否包含电影名 (必须包含，否则直接打回重写)。
+        3. 第二关：检测长度 (必须 <= 20)。
+           - 若超长 -> 物理降级 (删书名号 -> 删Emoji)。
+           - 若物理降级后仍超长 -> 打回重写。
+        4. 重写循环：限制次数 (MAX_TITLE_RETRIES)，若耗尽仍失败则熔断。
+        
+        【正文逻辑】：
+        - 优先删除评论区 -> AI 递归精简正文。
         """
         if len(data.get('tags', [])) > 10:
             data['tags'] = data['tags'][:10]
 
-        # --- 标题重写逻辑 ---
-        original_title = data['title']
-        clean_title = original_title.replace(" ", "")
-        current_len = self._count(clean_title)
+        # ==========================================================
+        # 🛡️ 标题熔断漏斗 (The Title Funnel)
+        # ==========================================================
+        clean_movie_name = movie_name.replace(" ", "")
+        max_retries = config.Strategy.Writer.MAX_TITLE_RETRIES
+        retry_count = 0
         
-        # 严格限制为 20 字
-        if current_len <= 20:
-            data['title'] = clean_title
+        # [新增] 读取 Emoji 开关，用于构建重写指令
+        use_emoji = config.Strategy.Writer.ENABLE_TITLE_EMOJI
+        if use_emoji:
+            emoji_instruction = "推荐使用 `Emoji + 电影名` 或 `电影名 + Emoji` 的结构，增加视觉跳跃感。"
         else:
-            retry_count = 0
-            # [修改] 使用 Strategy 中的配置
-            max_retries = config.Strategy.Writer.MAX_TITLE_RETRIES
+            emoji_instruction = "**严禁使用任何 Emoji 表情**，保持纯文字的极简与严肃。"
+        
+        while retry_count < max_retries:
+            current_title = data.get('title', '')
+            # 预处理：删除空格 (不计入字数)
+            clean_title = current_title.replace(" ", "")
+            title_len = self._count(clean_title)
+            has_name = clean_movie_name in clean_title
+
+            print(f"   🔍 [Title Check] 长度:{title_len}/20, 含片名:{has_name} | 原文: {current_title}")
+
+            # --- 第一关：电影名缺失检查 ---
+            if not has_name:
+                print(f"      ⛔ 致命错误：标题缺失电影名《{movie_name}》，跳过物理降级，直接打回重写。")
+                # 直接跳到 AI 重写环节
             
-            # [新增] 读取 Emoji 开关
-            use_emoji = config.Strategy.Writer.ENABLE_TITLE_EMOJI
+            # --- 第二关：长度检查与物理降级 ---
+            elif title_len <= 20:
+                # ✅ 完美通过
+                print(f"      ✅ 标题合规。")
+                data['title'] = clean_title
+                break 
             
-            # 动态构建 Prompt 指令 (根据开关决定是否允许删Emoji)
-            if use_emoji:
-                emoji_instruction = "推荐使用 `Emoji + 电影名` 或 `电影名 + Emoji` 的结构，增加视觉跳跃感。"
-                degrade_step_3 = "   - **第三步**：如果字数仍超标，**删除 Emoji** (只留文字)。"
             else:
-                emoji_instruction = "**严禁使用任何 Emoji 表情**，保持纯文字的极简与严肃。"
-                degrade_step_3 = "" 
-            
-            while retry_count < max_retries:
-                print(f"   ⚠️ 标题超长 ({current_len}字)，正在第 {retry_count+1} 次尝试重写...")
-                extra_instruction = ""
-                if retry_count > 0:
-                    extra_instruction = f"警告：上一次你写的还是太长了（{current_len}字），请务必更短一点！"
-                    
-                prompt = f"""
-                请将标题“{original_title}”重写为 **20字以内** 的【高格调小红书标题】。
-
-                【参考范例 (请模仿这种沉稳、治愈或史诗感的语调)】：
-                - 🎬《教父》：黑帮史诗的永恒回响
-                - 🌌 星际穿越：爱是唯一的维度
-                - 🍃治愈系天花板|小森林冬春篇
-                - 🌿遇见龙猫：宫崎骏的童年魔法
-                - ✨穿越神隐的成长之旅|千与千寻
-                - 疯狂动物城2｜五年，仍是彼此光✨
-
-                【重写规则】：
-                1. **语态重塑**：拒绝营销号式的“情绪宣泄”（如：哭晕、炸裂、强推）或“流量乞讨”。提倡**“旁白者”**或**“诗人”**的冷静视角，侧重于提炼电影的**氛围感**（如：治愈、致郁）、**美学特征**（如：光影）或**核心哲思**（如：宿命、成长）。
-                2. **结构要求**：{emoji_instruction}
-                3. **空间压缩策略 (当字数不够时，按顺序执行)**：
-                   - **第一步**：删除“这部”、“推荐”等废话，精简形容词。
-                   - **第二步**：**删除电影名周围的书名号《》** (直接写 电影名)。
-                {degrade_step_3}
-                   - **底线**：必须保留电影全名，总字数严禁超过 20 字。
+                # ⚠️ 包含电影名但超长 -> 启动物理降级漏斗
+                print(f"      ✂️ 标题超长 ({title_len}字)，启动物理降级漏斗...")
                 
-                {extra_instruction}
-                """
-                
-                new_title = self.brain.think(prompt, system_prompt="你是一个擅长起短标题的小红书博主。")
-                
-                if new_title:
-                    clean_new_title = new_title.strip().replace('"', '').replace(" ", "")
-                    new_len = self._count(clean_new_title)
-                    
-                    if new_len <= 20:
-                        data['title'] = clean_new_title
-                        print(f"      ✅ 标题优化成功: {clean_new_title}")
+                # Step A: 尝试删除书名号 《 》
+                temp_title = clean_title
+                if "《" in temp_title and "》" in temp_title:
+                    print(f"         🔨 [Funnel Step 1] 尝试删除书名号...")
+                    temp_title = temp_title.replace("《", "").replace("》", "")
+                    if self._count(temp_title) <= 20:
+                        print(f"         ✅ 删除书名号后达标 ({self._count(temp_title)}字)。")
+                        data['title'] = temp_title
                         break 
-                    else:
-                        current_len = new_len
                 
-                retry_count += 1
-            
-            # 最终检查
-            final_len = self._count(data.get('title', ''))
-            if final_len > 20:
-                print(f"❌ [Writer] 标题重写失败，经过 {max_retries} 次尝试后仍超长 ({final_len}字)。")
+                # Step B: 尝试删除 Emoji (Regex 匹配)
+                # 无论上一步是否执行，只要现在 temp_title 还是超长，就继续删 Emoji
+                if self._count(temp_title) > 20:
+                    print(f"         🔨 [Funnel Step 2] 尝试删除所有 Emoji...")
+                    # 简单的 Emoji 过滤正则 (覆盖大多数范围)
+                    no_emoji_title = re.sub(r'[^\w\u4e00-\u9fff,.:;!?，。：；！？"\'\(\)（）]', '', temp_title)
+                    if self._count(no_emoji_title) <= 20:
+                        print(f"         ✅ 删除Emoji后达标 ({self._count(no_emoji_title)}字)。")
+                        data['title'] = no_emoji_title
+                        break
+                
+                # 若经过两步物理降级仍失败，说明废话太多，需要 AI 重写
+                print(f"      ⚠️ 物理降级失败，仍超长 ({self._count(temp_title)}字)，转交 AI 重写。")
+
+            # --- 第三关：AI 重写 (The Rewrite Loop) ---
+            retry_count += 1
+            if retry_count >= max_retries:
+                print(f"❌ [Writer] 标题重写次数耗尽 ({max_retries}次)，最终仍不合规，触发熔断。")
                 return False
 
-        # --- 正文篇幅控制逻辑 ---
+            print(f"   🔄 [Rewrite] 第 {retry_count} 次重写标题...")
+            
+            # 动态构建“负向反馈”指令
+            feedback_instruction = ""
+            if not has_name:
+                feedback_instruction += f"\n   - **致命错误**：上一次你竟然忘了写电影名！**必须包含《{movie_name}》**！"
+            if title_len > 20:
+                feedback_instruction += f"\n   - **长度警告**：上一次太长了（{title_len}字），必须删减废话，控制在20字内。"
+            
+            # [Hybrid Prompt] 融合硬性约束与软性审美
+            prompt = f"""
+            你上一次生成的标题不合格。请重写标题。
+
+            【硬性红线 (必须遵守)】：
+            1. **必须包含电影名**：`{movie_name}` (完整的官方译名)。
+            2. **字数死线**：必须 **<= 20 字** (Emoji算1个字)。
+            3. **负向词库 (触发即违规)**：严禁出现“哭晕、炸裂、爽到灵魂出窍、绝绝子、yyds、跪求、强推”及夸张感叹号。
+
+            【参考范例 (请模仿这种沉稳、治愈或史诗感的语调)】：
+            - 🎬《教父》：黑帮史诗的永恒回响
+            - 🌌 星际穿越：爱是唯一的维度
+            - 🍃治愈系天花板|小森林冬春篇
+            - 🌿遇见龙猫：宫崎骏的童年魔法
+            - ✨穿越神隐的成长之旅|千与千寻
+            - 疯狂动物城2｜五年，仍是彼此光✨
+
+            【重写规则】：
+            1. **语态重塑**：拒绝营销号式的“情绪宣泄”或“流量乞讨”。提倡**“旁白者”**或**“诗人”**的冷静视角，侧重于提炼电影的**氛围感**、**美学特征**或**核心哲思**。
+            2. **结构要求**：{emoji_instruction}
+
+            {feedback_instruction}
+            
+            请直接输出新的标题字符串，不要加任何解释。
+            """
+            
+            new_title_raw = self.brain.think(prompt, system_prompt="你是一个听话的、不废话的文案编辑。")
+            if new_title_raw:
+                # 清洗一下返回值 (去掉可能的引号等)
+                data['title'] = new_title_raw.strip().replace('"', '').replace("`", "")
+            
+            # 循环继续，回到开头重新检查...
+
+        # ==========================================================
+        # 📜 正文篇幅控制逻辑 (The Content Loop)
+        # ==========================================================
         # 压缩优先级: hot_comments (直接删) -> highlight_expansion (AI精简) -> synopsis (AI精简)
         rewrite_steps = [
             ('highlight_expansion', '深度发散'),
@@ -434,23 +485,29 @@ class WriterAgent:
         
         return True
 
-    def _fetch_tmdb_reviews(self, movie_name: str) -> list:
+    def _fetch_tmdb_reviews(self, movie_name: str, tmdb_id: int = None) -> list:
         """
         从 TMDB API 获取用户评论。
         
         策略:
+        - [Plan B] 优先使用 tmdb_id 获取。
         - 优先获取中文评论 (zh)。
         - 不足 3 条时，使用英文评论补齐 (截取前300字符)。
         - 仅返回前 3 条，供 WriterAgent 挑选金句。
         """
-        # 保持原样...
         if not self.tmdb_key: return []
         try:
-            search_url = "https://api.themoviedb.org/3/search/movie"
-            resp = requests.get(search_url, params={"api_key": self.tmdb_key, "query": movie_name, "language": "zh-CN"})
-            results = resp.json().get("results", [])
-            if not results: return []
-            movie_id = results[0]["id"]
+            movie_id = None
+            if tmdb_id:
+                # [Plan B] 直接使用 ID
+                movie_id = tmdb_id
+            else:
+                # [Fallback] 降级搜索
+                search_url = "https://api.themoviedb.org/3/search/movie"
+                resp = requests.get(search_url, params={"api_key": self.tmdb_key, "query": movie_name, "language": "zh-CN"})
+                results = resp.json().get("results", [])
+                if not results: return []
+                movie_id = results[0]["id"]
             
             review_url = f"https://api.themoviedb.org/3/movie/{movie_id}/reviews"
             r_resp = requests.get(review_url, params={"api_key": self.tmdb_key})
