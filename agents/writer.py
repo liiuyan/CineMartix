@@ -6,17 +6,38 @@ import config
 from utils import LLMBrain
 
 class WriterAgent:
-    """✍️ 文案 Agent (数据驱动版 - 严格保留原版 Prompt 风味)"""
+    """
+    ✍️ 文案 Agent (数据驱动版 - 严格保留原版 Prompt 风味)
+    
+    负责将元数据 (MetaData) 转化为具有“小红书味”的高级感文案。
+    核心能力：
+    1. 双重票房门槛判断。
+    2. 真实评论注入 (中英对照 + 金句提取)。
+    3. 智能篇幅压缩 (Sanitization) 与标题动态重写。
+    """
+    
     def __init__(self):
         self.tmdb_key = config.TMDB_API_KEY
         self.brain = LLMBrain()
 
-    def run(self, movie_name, meta_data=None):
+    def run(self, movie_name: str, meta_data: dict = None) -> dict | None:
+        """
+        执行文案生成主流程。
+
+        Args:
+            movie_name (str): 电影名称。
+            meta_data (dict, optional): MetaFetcher 抓取的评分与票房数据。
+                                      包含: douban, imdb, revenue_cny 等。
+
+        Returns:
+            dict | None: 生成成功返回笔记数据字典 (title, content, tags)，失败返回 None。
+        """
         print(f"\n✍️ [2/5 WriterAgent] 正在撰写高级感文案 (注入真实评分数据)...")
         
         if meta_data is None: meta_data = {}
 
         # === 1. 准备随机 Emoji 盲盒 ===
+        # 用于增加文案的视觉丰富度，每次运行随机抽取不同 Emoji。
         emoji_bank = {
             "archive": ["🎞️", "📼", "💿", "📀", "📁", "📂", "📽️", "📺", "📻", "💽", "🔖"],
             "honor":   ["🏆", "🥇", "🎖️", "🏅", "👑", "🌟", "✨", "💐", "🏵️", "💎", "⚜️"],
@@ -34,6 +55,7 @@ class WriterAgent:
         }
 
         # === 2. 获取外部素材 ===
+        # 尝试从 TMDB 获取真实评论，若无则注入"禁令"防止 AI 编造。
         real_reviews = self._fetch_tmdb_reviews(movie_name)
         review_context = ""
         if real_reviews:
@@ -43,19 +65,20 @@ class WriterAgent:
             
         # === 3. 构建 Prompt (严格恢复原版) ===
         
-        # [新增] 票房双重门槛处理逻辑
+        # [逻辑] 票房双重门槛处理
         revenue_val = meta_data.get('revenue_cny', 0)
         min_threshold = config.Strategy.Writer.MIN_BOX_OFFICE_CNY
         force_threshold = config.Strategy.Writer.FORCE_BOX_OFFICE_CNY
         
         box_office_str = "N/A"
         
+        # 判定票房展示策略：强制展示 vs 替补展示
         if revenue_val >= force_threshold:
             # 门槛 B: 超过10亿 -> 必须展示
             val_in_yi = revenue_val / 100000000
             box_office_str = f"全球票房约 {val_in_yi:.1f} 亿人民币 (必须展示)"
         elif revenue_val >= min_threshold:
-            # 门槛 A: 超过1亿 -> 作为替补
+            # 门槛 A: 超过5亿 -> 作为替补
             val_in_yi = revenue_val / 100000000
             box_office_str = f"全球票房约 {val_in_yi:.1f} 亿人民币 (作为替补)"
             
@@ -69,6 +92,7 @@ class WriterAgent:
             f"票房: {box_office_str}"  # [新增] 注入带标签的票房
         )
 
+        # 构建 Prompt (Few-Shot Learning + Chain of Thought)
         prompt = f"""
         请为电影《{movie_name}》写一篇排版精美、有高级感的小红书笔记。
         【参考数据 (请优先使用)】：{score_info_str}
@@ -122,19 +146,26 @@ class WriterAgent:
         
         7. quotes: ["英文台词...", "中文翻译...", "英文台词...", "中文翻译..."] (2-3句最经典的即可)
            
-        8. hot_comments: (列表，无素材则为空)
-           
+        8. hot_comments (评论区处理规则):
+           * **中英对照模式**：
+             - 若素材是外语：必须输出 `“中文意译 (Original English Key Sentence)”` 的格式。英文部分仅保留最核心的一句金句。
+             - 若素材是中文：直接保留原话。
+           * **长度铁律**：单条评论（含中英双语内容）的总字数**严禁超过 60 字**。
+           * **语气要求**：中文部分必须像真实的中国网友发言（口语化、带情绪），拒绝机翻腔。
+
         9. ending: "自由发挥的结尾文案..."
 
         10. tags: 标签列表。
         """
         
+        # 调用 LLM 生成初始 JSON
         response = self.brain.think(prompt, system_prompt="你是一个审美极高的小红书博主，只输出JSON。")
         try:
             clean_json = response.replace("```json", "").replace("```", "").strip()
             data = json.loads(clean_json)
             
-            # === 4. 智能篇幅控制 ===
+            # === 4. 智能篇幅控制 (Sanitization) ===
+            # 这里包含标题重写逻辑和正文压缩逻辑
             is_valid = self._sanitize_content(data, selected_emojis, meta_data)
             
             if not is_valid:
@@ -153,9 +184,13 @@ class WriterAgent:
             print(f"❌ 文案解析失败: {e}")
             return None
 
-    def _assemble_content(self, data, emojis, meta_data):
+    def _assemble_content(self, data: dict, emojis: dict, meta_data: dict) -> str:
         """
-        将 JSON 数据组装成最终的文本字符串 (双行评分版)
+        将 JSON 数据组装成最终的文本字符串 (小红书笔记正文)。
+        
+        特性:
+        - 动态评分积木: 自动隐藏 N/A 的评分项。
+        - 双行评分展示: 第一行 (豆瓣/IMDb), 第二行 (烂番茄/MTC)。
         """
         basic = data['basic_info']
         cast = data['cast_info']
@@ -163,7 +198,7 @@ class WriterAgent:
         # --- 1. 档案区 (重构：动态积木) ---
         line1_parts = []
         
-        # 豆瓣 (优先用真实数据，若无则尝试用 AI 生成数据，但若均为 N/A 则不显示)
+        # 豆瓣 (优先用真实数据 MetaData，若无则尝试用 AI 生成数据，但若均为 N/A 则不显示)
         douban_val = meta_data.get('douban')
         if douban_val and douban_val != 'N/A':
             line1_parts.append(f"豆瓣 {douban_val}")
@@ -206,7 +241,7 @@ class WriterAgent:
         
         header_section += f"{info_line}\n\n"
         
-        # --- 其余部分保持原样 ---
+        # --- 其余部分组装 ---
         
         honor_section = ""
         if data.get('honors') and data['honors'].strip():
@@ -230,10 +265,12 @@ class WriterAgent:
             quotes_section = f"{emojis['quote']} 台词\n" + "\n".join(quotes) + "\n\n"
 
         comments_section = ""
+        # 仅当有评论素材时才生成此板块
         if data.get('hot_comments'):
             comments = [f"“{c}”" for c in data['hot_comments']]
             comments_str = "\n".join(comments)
-            comments_section = f"{emojis['comment']} 关于电影\n{comments_str}\n\n"
+            # [UI调整] 标题已从“关于电影”改为“电影评论”
+            comments_section = f"{emojis['comment']} 电影评论\n{comments_str}\n\n"
         
         ending_section = f"{data.get('ending', '评论区告诉我你的想法！👇')}"
 
@@ -249,26 +286,49 @@ class WriterAgent:
             ending_section
         )
 
-    def _count(self, text):
+    def _count(self, text: str) -> int:
+        """辅助函数：计算字符串长度"""
         return len(text)
 
-    def _sanitize_content(self, data, emojis, meta_data):
+    def _sanitize_content(self, data: dict, emojis: dict, meta_data: dict) -> bool:
         """
-        🛡️ 内容审查与智能压缩
+        🛡️ 内容审查与智能压缩 (Sanitization Pipeline)
+        
+        流程:
+        1. 标签数量限制 (Max 10).
+        2. 标题长度检测 (Max 20字):
+           - 若超长，根据配置 (ENABLE_TITLE_EMOJI) 动态生成重写指令。
+           - 执行 "先删废话 -> 再删书名号 -> (可选)删Emoji" 的降级策略。
+        3. 正文篇幅控制 (Max 1000字):
+           - 优先删除评论区。
+           - 其次递归压缩 '深度发散' 和 '剧情简介'。
         """
         if len(data.get('tags', [])) > 10:
             data['tags'] = data['tags'][:10]
 
+        # --- 标题重写逻辑 ---
         original_title = data['title']
         clean_title = original_title.replace(" ", "")
         current_len = self._count(clean_title)
         
+        # 严格限制为 20 字
         if current_len <= 20:
             data['title'] = clean_title
         else:
             retry_count = 0
             # [修改] 使用 Strategy 中的配置
             max_retries = config.Strategy.Writer.MAX_TITLE_RETRIES
+            
+            # [新增] 读取 Emoji 开关
+            use_emoji = config.Strategy.Writer.ENABLE_TITLE_EMOJI
+            
+            # 动态构建 Prompt 指令 (根据开关决定是否允许删Emoji)
+            if use_emoji:
+                emoji_instruction = "推荐使用 `Emoji + 电影名` 或 `电影名 + Emoji` 的结构，增加视觉跳跃感。"
+                degrade_step_3 = "   - **第三步**：如果字数仍超标，**删除 Emoji** (只留文字)。"
+            else:
+                emoji_instruction = "**严禁使用任何 Emoji 表情**，保持纯文字的极简与严肃。"
+                degrade_step_3 = "" 
             
             while retry_count < max_retries:
                 print(f"   ⚠️ 标题超长 ({current_len}字)，正在第 {retry_count+1} 次尝试重写...")
@@ -277,11 +337,25 @@ class WriterAgent:
                     extra_instruction = f"警告：上一次你写的还是太长了（{current_len}字），请务必更短一点！"
                     
                 prompt = f"""
-                请将标题“{original_title}”改写为 **20字以内**。
-                要求：
-                1. 必须保留原有的 Emoji（如果有）。
-                2. 保持原意，但用词更精简。
-                3. 直接返回新标题，不要解释。
+                请将标题“{original_title}”重写为 **20字以内** 的【高格调小红书标题】。
+
+                【参考范例 (请模仿这种沉稳、治愈或史诗感的语调)】：
+                - 🎬《教父》：黑帮史诗的永恒回响
+                - 🌌 星际穿越：爱是唯一的维度
+                - 🍃治愈系天花板|小森林冬春篇
+                - 🌿遇见龙猫：宫崎骏的童年魔法
+                - ✨穿越神隐的成长之旅|千与千寻
+                - 疯狂动物城2｜五年，仍是彼此光✨
+
+                【重写规则】：
+                1. **语态重塑**：拒绝营销号式的“情绪宣泄”（如：哭晕、炸裂、强推）或“流量乞讨”。提倡**“旁白者”**或**“诗人”**的冷静视角，侧重于提炼电影的**氛围感**（如：治愈、致郁）、**美学特征**（如：光影）或**核心哲思**（如：宿命、成长）。
+                2. **结构要求**：{emoji_instruction}
+                3. **空间压缩策略 (当字数不够时，按顺序执行)**：
+                   - **第一步**：删除“这部”、“推荐”等废话，精简形容词。
+                   - **第二步**：**删除电影名周围的书名号《》** (直接写 电影名)。
+                {degrade_step_3}
+                   - **底线**：必须保留电影全名，总字数严禁超过 20 字。
+                
                 {extra_instruction}
                 """
                 
@@ -300,11 +374,14 @@ class WriterAgent:
                 
                 retry_count += 1
             
+            # 最终检查
             final_len = self._count(data.get('title', ''))
             if final_len > 20:
                 print(f"❌ [Writer] 标题重写失败，经过 {max_retries} 次尝试后仍超长 ({final_len}字)。")
                 return False
 
+        # --- 正文篇幅控制逻辑 ---
+        # 压缩优先级: hot_comments (直接删) -> highlight_expansion (AI精简) -> synopsis (AI精简)
         rewrite_steps = [
             ('highlight_expansion', '深度发散'),
             ('synopsis', '剧情简介'),
@@ -314,13 +391,14 @@ class WriterAgent:
         step_index = 0
         
         while True:
-            # 传入 meta_data
+            # 临时组装以检查长度
             current_text = self._assemble_content(data, emojis, meta_data)
             current_len = self._count(current_text)
             
             if current_len <= 1000:
                 break 
-                
+            
+            # 策略1: 优先删除评论
             comments = data.get('hot_comments', [])
             if comments:
                 if len(comments) >= 2:
@@ -331,6 +409,7 @@ class WriterAgent:
                     print(f"   ✂️ [长度优化] 正文仍超限，移除整个评论区板块...")
                 continue 
             
+            # 策略2: AI 递归精简正文段落
             if step_index < len(rewrite_steps):
                 field, name = rewrite_steps[step_index]
                 step_index += 1
@@ -355,7 +434,15 @@ class WriterAgent:
         
         return True
 
-    def _fetch_tmdb_reviews(self, movie_name):
+    def _fetch_tmdb_reviews(self, movie_name: str) -> list:
+        """
+        从 TMDB API 获取用户评论。
+        
+        策略:
+        - 优先获取中文评论 (zh)。
+        - 不足 3 条时，使用英文评论补齐 (截取前300字符)。
+        - 仅返回前 3 条，供 WriterAgent 挑选金句。
+        """
         # 保持原样...
         if not self.tmdb_key: return []
         try:

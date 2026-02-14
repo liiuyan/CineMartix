@@ -8,7 +8,7 @@ from openai import OpenAI
 import config  # 引用配置
 
 class HistoryManager:
-    """🧠 记忆模块"""
+    """🧠 记忆模块: 负责历史记录的读写，防止重复选题。"""
     def __init__(self):
         self.filepath = config.HISTORY_FILE
         self.history = self._load()
@@ -51,7 +51,7 @@ class HistoryManager:
         return movie_name in self.history
 
 class XHSClient:
-    """HTTP API 客户端"""
+    """HTTP API 客户端: 封装小红书发布接口调用"""
     def __init__(self):
         self.base_url = config.API_BASE_URL
 
@@ -89,7 +89,7 @@ class XHSClient:
             return None
 
 class LLMBrain:
-    """DeepSeek 大脑"""
+    """DeepSeek 大脑: 封装 LLM 调用逻辑"""
     def __init__(self):
         self.client = OpenAI(api_key=config.LLM_API_KEY, base_url=config.LLM_BASE_URL)
 
@@ -114,7 +114,18 @@ class LLMBrain:
 # [升级] 数据猎手模块 (MetaFetcher v2.4 - 稳健精简版)
 # ==========================================
 class MetaFetcher:
-    """📊 数据猎手: 身份核验 -> 英文锚定 -> 数据分发 (移除不稳定的烂番茄观众分)"""
+    """
+    📊 数据猎手 (MetaFetcher)
+    
+    核心流程:
+    1. 身份核验: LLM 确认英文名和年份，防止中文同名混淆。
+    2. TMDB 锚定: 获取 ID、官方译名、海报、票房数据。
+    3. 数据融合:
+       - TMDB: 票房 (revenue)
+       - OMDB: IMDb, 烂番茄, Metacritic
+       - Serper: 豆瓣 (Google Search + LLM 提取)
+    4. 质量熔断 (Quality Gate): 若核心评分 (Douban/IMDb) 均缺失，则抛出异常终止流程。
+    """
     def __init__(self):
         self.tmdb_key = config.TMDB_API_KEY
         self.omdb_key = config.OMDB_API_KEY
@@ -284,6 +295,7 @@ class MetaFetcher:
             return 0
 
     def _get_omdb_scores(self, imdb_id):
+        """获取 OMDB 评分数据 (IMDb, Rotten Tomatoes, Metacritic)"""
         res = {}
         try:
             url = f"http://www.omdbapi.com/?i={imdb_id}&apikey={self.omdb_key}"
@@ -303,7 +315,7 @@ class MetaFetcher:
         return res
 
     def _get_douban_score(self, movie_name, year):
-        """Google Search (自然语言) -> LLM 提取"""
+        """Google Search (自然语言) -> LLM 提取豆瓣分"""
         query = f"{movie_name} {year} 豆瓣评分"
         
         try:
