@@ -172,6 +172,7 @@ class MetaFetcher:
 
         scores = {
             "year": final_year,
+            "tmdb_id": tmdb_id, # [Plan B] 关键修改: 必须将 TMDB ID 传递给下游
             "imdb": "N/A",
             "rotten_tomatoes": "N/A", # 影评人 (OMDB)
             "metacritic": "N/A",
