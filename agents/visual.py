@@ -10,21 +10,40 @@ from transformers import CLIPProcessor, CLIPModel
 import config # 引用配置中的路径
 
 class VisualAgent:
-    """🎨 视觉 Agent (支持人工混合模式 + CLIP语义去重 + 智能排序)"""
+    """
+    🎨 视觉 Agent (支持人工混合模式 + CLIP语义去重 + 智能排序)
+    
+    负责下载、筛选和处理电影图片素材。
+    核心逻辑:
+    1. 必须包含 1 张竖版封面 (Cover)。
+    2. 补充 N 张横版剧照 (Backdrops)。
+    3. 支持 '人工素材优先' 策略 (Manual Override)。
+    4. 使用 CLIP 模型计算图片余弦相似度，剔除重复画面。
+    """
+    
     def __init__(self):
         self.tmdb_key = config.TMDB_API_KEY
         self.search_key = config.SEARCH_API_KEY
-        self.downloaded_embeddings = [] # 存储当前运行中所有已采纳图片的指纹
+        self.downloaded_embeddings = [] # 存储当前运行中所有已采纳图片的指纹 (Embedding)
         
-        # 加载 CLIP 模型
+        # 加载 CLIP 模型 (用于语义去重)
         print("   ⏳ 正在初始化 CLIP 视觉模型 (用于语义去重)...")
         self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
         self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
         print("   ✅ CLIP 模型就绪")
 
-    def run(self, movie_name):
+    def run(self, movie_name: str) -> list | None:
+        """
+        执行视觉素材获取主流程。
+        
+        Args:
+            movie_name (str): 电影名称。
+            
+        Returns:
+            list | None: 成功返回本地图片路径列表，失败返回 None。
+        """
         print(f"\n🎨 [3/5 VisualAgent] 正在搜集《{movie_name}》的视觉素材...")
-        self.downloaded_embeddings = [] # 清空指纹库
+        self.downloaded_embeddings = [] # 每次运行前清空指纹库
         
         # 0. 检查是否存在人工素材文件夹
         manual_dir = os.path.join(config.BASE_DIR, "资料", "manual_materials", movie_name)
@@ -37,12 +56,14 @@ class VisualAgent:
             return self._run_auto_mode(movie_name)
 
     # ================= 核心模式 A: 人工混合模式 =================
-    def _run_manual_mode(self, movie_name, manual_dir):
+    def _run_manual_mode(self, movie_name: str, manual_dir: str) -> list | None:
         """
-        逻辑：
-        1. 强制 TMDB 竖版封面 (1张) -> 失败则退出
-        2. 人工素材 (N张) -> 全盘照收，格式转 JPG
-        3. TMDB 剧照补充 (Target - 1 - N) -> CLIP 严格去重
+        人工混合模式 (Manual Mixed Mode)
+        
+        策略:
+        1. 强制 TMDB 竖版封面 (1张) -> 若失败则全流程终止。
+        2. 人工素材 (N张) -> 全盘照收，不做去重，格式统一转 JPG。
+        3. TMDB 剧照补充 -> 仅当人工素材不足 Target 数量时触发，且进行严格 CLIP 去重。
         """
         final_paths = []
         tmdb_data = self._get_tmdb_images_json(movie_name)
@@ -83,7 +104,14 @@ class VisualAgent:
         return final_paths
 
     # ================= 核心模式 B: 自动兜底模式 (原逻辑) =================
-    def _run_auto_mode(self, movie_name):
+    def _run_auto_mode(self, movie_name: str) -> list:
+        """
+        自动兜底模式 (Auto Mode)
+        
+        策略:
+        1. 优先使用 TMDB 下载 Target 张图片 (含1张封面)。
+        2. 若 TMDB 图片不足，降级使用 Google Search (Serper) 补齐。
+        """
         local_paths = []
         # [修改] 读取配置的目标数量
         target_count = config.Strategy.Visual.TARGET_TOTAL_IMAGES
@@ -109,8 +137,8 @@ class VisualAgent:
 
     # ================= 功能函数 =================
 
-    def _get_tmdb_images_json(self, movie_name):
-        """获取 TMDB 图片原始数据"""
+    def _get_tmdb_images_json(self, movie_name: str) -> dict | None:
+        """获取 TMDB 图片原始数据 (Posters + Backdrops)"""
         if not self.tmdb_key: return None
         try:
             # 1. 搜 Movie ID
@@ -127,8 +155,15 @@ class VisualAgent:
             print(f"   ⚠️ TMDB API 出错: {e}")
             return None
 
-    def _fetch_best_vertical_cover(self, data, movie_name):
-        """从 TMDB 数据中寻找最佳竖版海报"""
+    def _fetch_best_vertical_cover(self, data: dict, movie_name: str) -> str | None:
+        """
+        从 TMDB 数据中寻找最佳竖版海报。
+        
+        逻辑:
+        1. 筛选 height > width 的图片。
+        2. 优先中文 (zh)，其次英文，按 vote_average 排序。
+        3. 封面不做去重 (check_dedup=False)。
+        """
         base_url = "https://image.tmdb.org/t/p/original"
         posters = data.get("posters", [])
         
@@ -151,8 +186,15 @@ class VisualAgent:
         # 后缀统一为 cover_tmdb
         return self._download_and_process(base_url + best["file_path"], movie_name, "cover_tmdb", check_dedup=False)
 
-    def _load_manual_files(self, manual_dir, movie_name):
-        """加载本地人工素材"""
+    def _load_manual_files(self, manual_dir: str, movie_name: str) -> list:
+        """
+        加载本地人工素材。
+        
+        注意:
+        - 仅支持 jpg, jpeg, png, webp。
+        - 即使是人工素材，也会被 _process_image_obj 处理成 JPG 格式。
+        - 也会计算 CLIP 特征并存入 downloaded_embeddings，防止后续 TMDB 剧照重复。
+        """
         paths = []
         files = sorted(os.listdir(manual_dir)) # 排序保证顺序
         valid_exts = {'.jpg', '.jpeg', '.png', '.webp'}
@@ -176,8 +218,15 @@ class VisualAgent:
                 
         return paths
 
-    def _fetch_backdrops_with_dedup(self, data, movie_name, count):
-        """获取 TMDB 剧照 (Backdrops) 并严格去重"""
+    def _fetch_backdrops_with_dedup(self, data: dict, movie_name: str, count: int) -> list:
+        """
+        获取 TMDB 剧照 (Backdrops) 并严格去重。
+        
+        逻辑:
+        1. 优先无文字(null)和中文(zh)剧照。
+        2. 每下载一张，都会与 downloaded_embeddings 中的已有图片(含封面+人工图)比对。
+        3. 若相似度 > CLIP_THRESHOLD，则丢弃。
+        """
         paths = []
         base_url = "https://image.tmdb.org/t/p/original"
         backdrops = data.get("backdrops", [])
@@ -209,7 +258,7 @@ class VisualAgent:
                 
         return paths
 
-    def _fetch_from_tmdb_auto(self, movie_name, limit=10):
+    def _fetch_from_tmdb_auto(self, movie_name: str, limit: int = 10) -> list:
         """原有的自动模式逻辑 (Poster + Backdrops 混杂)"""
         tmdb_data = self._get_tmdb_images_json(movie_name)
         if not tmdb_data: return []
@@ -236,7 +285,7 @@ class VisualAgent:
             
         return paths
 
-    def _download_and_process(self, url, prefix, suffix, check_dedup=True):
+    def _download_and_process(self, url: str, prefix: str, suffix: str, check_dedup: bool = True) -> str | None:
         """通用下载器：下载 -> 调用 _process_image_obj"""
         try:
             resp = requests.get(url, timeout=15)
@@ -249,13 +298,15 @@ class VisualAgent:
         except:
             return None
 
-    def _process_image_obj(self, img_obj, prefix, suffix, check_dedup=True):
+    def _process_image_obj(self, img_obj, prefix: str, suffix: str, check_dedup: bool = True) -> str | None:
         """
-        核心处理逻辑：
-        1. 格式统一转 RGB
-        2. CLIP 特征计算
-        3. 语义去重 (可选)
-        4. 保存为 JPG
+        图片处理核心管道。
+        
+        流程:
+        1. 格式转换: RGBA -> RGB.
+        2. 特征提取: 调用 CLIP 模型计算 Embedding.
+        3. 语义去重: 若 check_dedup=True, 计算与历史图片的余弦相似度.
+        4. 文件保存: 统一保存为 JPG (Quality 95).
         """
         try:
             img = img_obj.convert("RGB")
@@ -287,7 +338,7 @@ class VisualAgent:
             print(f"      ⚠️ 图片处理异常: {e}")
             return None
 
-    def _google_search(self, query, num, suffix, paths):
+    def _google_search(self, query: str, num: int, suffix: str, paths: list):
         """Google 搜索降级 (维持原样)"""
         url = "https://google.serper.dev/images"
         headers = {'X-API-KEY': self.search_key, 'Content-Type': 'application/json'}
@@ -301,6 +352,7 @@ class VisualAgent:
         except: pass
 
     def _get_clip_embedding(self, image):
+        """调用 CLIP 模型提取图片特征向量"""
         try:
             inputs = self.clip_processor(images=image, return_tensors="pt")
             with torch.no_grad():
@@ -322,7 +374,8 @@ class VisualAgent:
             print(f"   ⚠️ Embedding 计算失败: {e}")
             return None
 
-    def _is_semantically_duplicate(self, current_embedding):
+    def _is_semantically_duplicate(self, current_embedding) -> bool:
+        """计算余弦相似度，判断是否重复"""
         if not self.downloaded_embeddings:
             return False
         if current_embedding is None:
