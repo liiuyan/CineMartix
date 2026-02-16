@@ -1,4 +1,4 @@
-# 文件名: little_red/agents/writer.py
+# 文件名: agents/writer.py
 import json
 import requests
 import random
@@ -6,9 +6,44 @@ import re
 import config
 from utils import LLMBrain
 
+# ==============================================================================
+# 🎨 全局美学协议 (High-End Aesthetics Protocol v2.0)
+# ==============================================================================
+# 这是一个常量模版，用于在初始生成和重写阶段反复注入，确保审美不降级。
+AESTHETICS_PROTOCOL =  """
+【小红书电影号·真实质感协议 (Grounded Aesthetics Protocol v2.2)】
+
+1. 🏆 黄金范例 (Gold Standard) - **请严格模仿以下标题的气质与结构**：
+   - 🎬《教父》：黑帮史诗的永恒回响
+   - 🌌 星际穿越：爱是唯一的维度
+   - 🍃治愈系天花板 | 小森林冬春篇
+   - 🌿遇见龙猫：宫崎骏的童年魔法
+   - ✨穿越神隐的成长之旅 | 千与千寻
+   - 疯狂动物城2｜五年，仍是彼此光✨
+
+2. 🚫 结构禁区 (Structural Bans) - **精准打击营销号句式**：
+   - 🔴 **禁止“长定语+的+片名”**：严禁写“……的《电影名》”。
+     - ❌ 错误：`一部让你重新相信温暖与羁绊的《触不可及》` (啰嗦，片名被淹没)
+     - ✅ 修正：`神级友情 | 触不可及` (改为管道符结构)
+     - ✅ 修正：`神级友情 | 触不可及` (改为管道符结构)
+     - ✅ 修正：`《触不可及》：跨越阶级的灵魂共振` (改为冒号结构)
+   - 🔴 **禁止“推文腔”**：严禁使用“一部让你……”、“带你走进……”、“教会我们……”这种长句开场。
+
+3. 🌡️ 词汇温度调节 (Vocabulary Temperature)
+   - 🔴 **绝对禁用**：哭晕、炸裂、绝绝子、yyds、跪求、强推、暴风哭泣、全程高能、无尿点。
+   
+
+4. ✍️ 核心法则：短语化 (Phrasing)
+   - 标题必须由 **“精炼的短语”** 组成，严禁使用“完整的句子”。
+   - ❌ Sentence: `《星际穿越》是一部讲述爱可以穿越维度的电影`
+   - ✅ Phrase: `星际穿越：爱是唯一的维度`
+
+5. ⚠️ 再次重申：严禁在标题中出现年份数字。
+"""
+
 class WriterAgent:
     """
-    ✍️ 文案 Agent (数据驱动版 - 严格保留原版 Prompt 风味)
+    ✍️ 文案 Agent (数据驱动版 - 严格保留原版 Prompt 风味 + 审美协议植入 + 输入清洗)
     
     负责将元数据 (MetaData) 转化为具有“小红书味”的高级感文案。
     核心能力：
@@ -33,7 +68,21 @@ class WriterAgent:
         Returns:
             dict | None: 生成成功返回笔记数据字典 (title, content, tags)，失败返回 None。
         """
+        # ==================== 🛡️ 输入清洗 (Sanitization) ====================
+        # [Fix] 防止上游传入 "电影名|年份" 格式的脏数据导致 Prompt 指令冲突
+        # 优先处理全角符号，再处理半角符号
+        clean_name = movie_name
+        if "｜" in clean_name:
+            clean_name = clean_name.split("｜")[0].strip()
+        if "|" in clean_name:
+            clean_name = clean_name.split("|")[0].strip()
+            
+        # 更新 movie_name 变量，确保后续所有逻辑（Prompt/Check）都使用纯净片名
+        movie_name = clean_name
+        # ===================================================================
+
         print(f"\n✍️ [2/5 WriterAgent] 正在撰写高级感文案 (注入真实评分数据)...")
+        print(f"   🎬 当前处理电影: 《{movie_name}》") # [新增] 打印确认清洗后的片名
         
         if meta_data is None: meta_data = {}
 
@@ -101,6 +150,8 @@ class WriterAgent:
         【参考数据 (请优先使用)】：{score_info_str}
         {review_context}
         
+        {AESTHETICS_PROTOCOL}  <-- 【核心植入：美学协议】
+        
         【核心指令】：
         1. **简介流畅化 (分段)**：synopsis 字段请写一段引人入胜的剧情叙述（约150-200字）。**为了阅读舒适，请务必使用换行符将内容分成 2 个自然段**，不要堆成一大块。不要剧透核心谜底，重点营造氛围。
         
@@ -124,7 +175,7 @@ class WriterAgent:
         5. **拒绝模版**：ending 字段请自由发挥，写一段简短、口语化、有共鸣的结尾。
 
         【返回 JSON】：
-        1. title: 标题 (<20字, 必带Emoji, **必须包含电影名《{movie_name}》**)
+        1. title: 标题 (<20字, 必带Emoji, **必须包含电影名《{movie_name}》**, **严格遵循上述美学协议**)
         
         2. basic_info: 
            {{
@@ -308,12 +359,7 @@ class WriterAgent:
         1. 预处理：删除所有空格。
         2. 第一关：检测是否包含电影名 (必须包含，否则直接打回重写)。
         3. 第二关：检测长度 (必须 <= 20)。
-           - 若超长 -> 物理降级 (删书名号 -> 删Emoji)。
-           - 若物理降级后仍超长 -> 打回重写。
-        4. 重写循环：限制次数 (MAX_TITLE_RETRIES)，若耗尽仍失败则熔断。
-        
-        【正文逻辑】：
-        - 优先删除评论区 -> AI 递归精简正文。
+        4. 第三关：年份查杀 (Year Killer) - 严禁年份出现，触发美学重写。
         """
         if len(data.get('tags', [])) > 10:
             data['tags'] = data['tags'][:10]
@@ -332,6 +378,9 @@ class WriterAgent:
         else:
             emoji_instruction = "**严禁使用任何 Emoji 表情**，保持纯文字的极简与严肃。"
         
+        # 编译年份正则 (匹配 19xx 或 20xx)
+        year_pattern = re.compile(r'(19|20)\d{2}')
+
         while retry_count < max_retries:
             current_title = data.get('title', '')
             # 预处理：删除空格 (不计入字数)
@@ -339,14 +388,23 @@ class WriterAgent:
             title_len = self._count(clean_title)
             has_name = clean_movie_name in clean_title
 
-            print(f"   🔍 [Title Check] 长度:{title_len}/20, 含片名:{has_name} | 原文: {current_title}")
+            # [新增] 年份检测逻辑 (Year Check)
+            found_years = year_pattern.findall(clean_title)
+            is_year_violation = False
+            for y in found_years:
+                if y not in movie_name:
+                    is_year_violation = True
+                    break
 
-            # --- 第一关：电影名缺失检查 ---
+            print(f"   🔍 [Title Check] 长度:{title_len}/20, 含片名:{has_name}, 含年份违规:{is_year_violation} | 原文: {current_title}")
+
+            # --- 判定逻辑 ---
             if not has_name:
                 print(f"      ⛔ 致命错误：标题缺失电影名《{movie_name}》，跳过物理降级，直接打回重写。")
-                # 直接跳到 AI 重写环节
             
-            # --- 第二关：长度检查与物理降级 ---
+            elif is_year_violation:
+                print(f"      ⛔ 美学违规：标题包含非原名年份 ({found_years})，强制重写以提升质感。")
+            
             elif title_len <= 20:
                 # ✅ 完美通过
                 print(f"      ✅ 标题合规。")
@@ -354,7 +412,7 @@ class WriterAgent:
                 break 
             
             else:
-                # ⚠️ 包含电影名但超长 -> 启动物理降级漏斗
+                # ⚠️ 包含电影名但超长 -> 尝试物理降级
                 print(f"      ✂️ 标题超长 ({title_len}字)，启动物理降级漏斗...")
                 
                 # Step A: 尝试删除书名号 《 》
@@ -368,17 +426,14 @@ class WriterAgent:
                         break 
                 
                 # Step B: 尝试删除 Emoji (Regex 匹配)
-                # 无论上一步是否执行，只要现在 temp_title 还是超长，就继续删 Emoji
                 if self._count(temp_title) > 20:
                     print(f"         🔨 [Funnel Step 2] 尝试删除所有 Emoji...")
-                    # 简单的 Emoji 过滤正则 (覆盖大多数范围)
                     no_emoji_title = re.sub(r'[^\w\u4e00-\u9fff,.:;!?，。：；！？"\'\(\)（）]', '', temp_title)
                     if self._count(no_emoji_title) <= 20:
                         print(f"         ✅ 删除Emoji后达标 ({self._count(no_emoji_title)}字)。")
                         data['title'] = no_emoji_title
                         break
                 
-                # 若经过两步物理降级仍失败，说明废话太多，需要 AI 重写
                 print(f"      ⚠️ 物理降级失败，仍超长 ({self._count(temp_title)}字)，转交 AI 重写。")
 
             # --- 第三关：AI 重写 (The Rewrite Loop) ---
@@ -391,34 +446,34 @@ class WriterAgent:
             
             # 动态构建“负向反馈”指令
             feedback_instruction = ""
+            
+            # Case 1: 年份违规
+            if is_year_violation:
+                feedback_instruction += f"\n   - **严重美学违规**：检测到标题包含年份数字，这是严重的各种浪费！请删除年份，并利用腾出的空间加入一个**具体的意象词**（参考美学协议中的推荐词库），提升文学性。"
+            
+            # Case 2: 缺失片名
             if not has_name:
                 feedback_instruction += f"\n   - **致命错误**：上一次你竟然忘了写电影名！**必须包含《{movie_name}》**！"
+            
+            # Case 3: 长度违规
             if title_len > 20:
-                feedback_instruction += f"\n   - **长度警告**：上一次太长了（{title_len}字），必须删减废话，控制在20字内。"
+                feedback_instruction += f"\n   - **长度警告**：标题超长了！请缩短成小于20字的标题，请在缩减字数的同时，保留最核心的意象词，删掉那些无意义的修饰词（如‘真的’、‘超级’），确保缩短后依然有文学质感。"
             
             # [Hybrid Prompt] 融合硬性约束与软性审美
             prompt = f"""
             你上一次生成的标题不合格。请重写标题。
 
+            {AESTHETICS_PROTOCOL}  <-- 【再次注入美学协议】
+
             【硬性红线 (必须遵守)】：
             1. **必须包含电影名**：`{movie_name}` (完整的官方译名)。
             2. **字数死线**：必须 **<= 20 字** (Emoji算1个字)。
-            3. **负向词库 (触发即违规)**：严禁出现“哭晕、炸裂、爽到灵魂出窍、绝绝子、yyds、跪求、强推”及夸张感叹号。
 
-            【参考范例 (请模仿这种沉稳、治愈或史诗感的语调)】：
-            - 🎬《教父》：黑帮史诗的永恒回响
-            - 🌌 星际穿越：爱是唯一的维度
-            - 🍃治愈系天花板|小森林冬春篇
-            - 🌿遇见龙猫：宫崎骏的童年魔法
-            - ✨穿越神隐的成长之旅|千与千寻
-            - 疯狂动物城2｜五年，仍是彼此光✨
-
-            【重写规则】：
-            1. **语态重塑**：拒绝营销号式的“情绪宣泄”或“流量乞讨”。提倡**“旁白者”**或**“诗人”**的冷静视角，侧重于提炼电影的**氛围感**、**美学特征**或**核心哲思**。
-            2. **结构要求**：{emoji_instruction}
-
+            【针对性修正指令】：
             {feedback_instruction}
             
+            【结构要求】：{emoji_instruction}
+
             请直接输出新的标题字符串，不要加任何解释。
             """
             

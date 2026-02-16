@@ -132,12 +132,17 @@ class MetaFetcher:
         self.serper_key = config.SERPER_API_KEY or config.SEARCH_API_KEY
         self.brain = LLMBrain()
 
-    def fetch_all(self, movie_name):
-        print(f"\n📊 [MetaFetcher] 正在构建数据传导链: 《{movie_name}》")
+    def fetch_all(self, movie_name, specific_year=None):
+        """
+        [升级] 接收 specific_year 用于精准锚定
+        """
+        year_log = f" ({specific_year})" if specific_year else ""
+        print(f"\n📊 [MetaFetcher] 正在构建数据传导链: 《{movie_name}》{year_log}")
         
         # === Step 0: 身份核验 (Identity Resolution) ===
         # 解决中文同名/译名混淆问题 (如 "狩猎" vs "狩猎人")
-        identity = self._resolve_identity(movie_name)
+        # [升级] 传入特定年份以消除歧义
+        identity = self._resolve_identity(movie_name, specific_year)
         
         # 确定 TMDB 搜索的锚点
         if identity:
@@ -146,7 +151,7 @@ class MetaFetcher:
             print(f"   🆔 身份核验成功: 锁定为 '{search_query}' ({search_year})")
         else:
             search_query = movie_name
-            search_year = ""
+            search_year = specific_year if specific_year else ""
             print(f"   ⚠️ 身份核验失败，降级使用中文名搜索: '{search_query}'")
 
         # === Step 1: TMDB 锚定 (Anchor) ===
@@ -204,11 +209,17 @@ class MetaFetcher:
         
         return scores
 
-    def _resolve_identity(self, movie_name):
+    def _resolve_identity(self, movie_name, specific_year=None):
         """[新增] 询问 LLM 该电影的官方英文名和年份"""
         try:
+            # [升级] 注入特定年份约束
+            constraint = ""
+            if specific_year:
+                constraint = f"User Constraint: The movie MUST be from the year {specific_year}."
+
             prompt = f"""
             Task: Identify the movie "{movie_name}".
+            {constraint}
             Return valid JSON with its **Official English Title** and **Release Year**.
             
             Example:
