@@ -180,34 +180,68 @@ class VisualAgent:
 
     def _fetch_best_vertical_cover(self, data: dict, movie_name: str) -> str | None:
         """
-        从 TMDB 数据中寻找最佳竖版海报。
+        从 TMDB 数据中寻找最佳竖版海报 (5级瀑布流筛选).
         
         逻辑:
-        1. 筛选 height > width 的图片。
-        2. 优先中文 (zh)，其次英文，按 vote_average 排序。
-        3. 封面不做去重 (check_dedup=False)。
+        1. 物理筛选: 必须是竖版 (height > width).
+        2. 语言筛选: 仅保留中文 (zh) 和 英文 (en).
+        3. 质量门槛: 优先选取宽度 >= MIN_COVER_WIDTH 的高清图.
+        4. 降级策略: 中文高清 -> 英文高清 -> 中文低清 -> 英文低清 -> 熔断.
         """
         base_url = "https://image.tmdb.org/t/p/original"
         posters = data.get("posters", [])
         
-        # 筛选条件：有文件路径 且 高度 > 宽度 (竖版)
-        valid_posters = [p for p in posters if p.get("file_path") and p.get("height", 0) > p.get("width", 0)]
+        # 1. 物理筛选: 竖版
+        candidates = [p for p in posters if p.get("file_path") and p.get("height", 0) > p.get("width", 0)]
         
-        if not valid_posters:
+        if not candidates:
+            print("      ❌ [Visual] TMDB 未找到任何竖版海报。")
             return None
+
+        # 2. 分组 (Groups) & 3. 排序 (按评分降序)
+        group_zh = sorted([p for p in candidates if p["iso_639_1"] == "zh"], key=lambda x: x["vote_average"], reverse=True)
+        group_en = sorted([p for p in candidates if p["iso_639_1"] == "en"], key=lambda x: x["vote_average"], reverse=True)
+        
+        # 读取清晰度阈值
+        min_width = config.Strategy.Visual.MIN_COVER_WIDTH
+        selected_poster = None
+        log_msg = ""
+
+        # --- 4. 瀑布流选取 (The Waterfall) ---
+
+        # 🏆 Stage 1: 中文高清
+        for p in group_zh:
+            if p["width"] >= min_width:
+                selected_poster = p
+                log_msg = f"✅ [Visual] 命中: 中文高清封面 (w={p['width']}, score={p['vote_average']})"
+                break
+        
+        # 🥈 Stage 2: 英文高清 (若 Stage 1 未命中)
+        if not selected_poster:
+            for p in group_en:
+                if p["width"] >= min_width:
+                    selected_poster = p
+                    log_msg = f"✅ [Visual] 命中: 英文高清封面 (w={p['width']}, score={p['vote_average']})"
+                    break
+        
+        # 🥉 Stage 3: 中文兜底 (若 Stage 1,2 未命中)
+        if not selected_poster and group_zh:
+            selected_poster = group_zh[0]
+            log_msg = f"⚠️ [Visual] 降级: 未找到高清图，使用最佳中文低清海报 (w={selected_poster['width']})"
             
-        # 优先找中文，没有则找英文/其他，按评分排序
-        zh_posters = [p for p in valid_posters if p["iso_639_1"] == "zh"]
-        other_posters = [p for p in valid_posters if p["iso_639_1"] != "zh"]
-        
-        zh_posters.sort(key=lambda x: x["vote_average"], reverse=True)
-        other_posters.sort(key=lambda x: x["vote_average"], reverse=True)
-        
-        best = zh_posters[0] if zh_posters else other_posters[0]
-        
-        # 下载并处理 (check_dedup=False, 因为它是第一张)
-        # 后缀统一为 cover_tmdb
-        return self._download_and_process(base_url + best["file_path"], movie_name, "cover_tmdb", check_dedup=False)
+        # 🧱 Stage 4: 英文兜底 (若 Stage 1,2,3 未命中)
+        if not selected_poster and group_en:
+            selected_poster = group_en[0]
+            log_msg = f"⚠️ [Visual] 降级: 无中文且无高清，使用最佳英文海报 (w={selected_poster['width']})"
+
+        # ☠️ Stage 5: 熔断
+        if not selected_poster:
+            print("      ❌ [Visual] 熔断: TMDB 中无中文或英文海报 (仅有其他小语种或无图)。")
+            return None
+
+        # 执行下载 (check_dedup=False, 因为它是第一张)
+        print(f"      {log_msg}")
+        return self._download_and_process(base_url + selected_poster["file_path"], movie_name, "cover_tmdb", check_dedup=False)
 
     def _load_manual_files(self, manual_dir: str, movie_name: str) -> list:
         """

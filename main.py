@@ -20,12 +20,13 @@ def main():
     5. ExecutionAgent: 最终发布 (API调用).
     """
     print("==========================================")
-    print("   🚀 Little Red Book Auto-Operator v2.5   ")
+    print("   🚀 Little Red Book Auto-Operator v2.8   ")
     print("==========================================")
 
     # === Step 1: 选题 (Topic) ===
     topic_agent = TopicAgent()
-    movie_name = topic_agent.run()
+    # [修改] 接收元组: (电影名, 年份)
+    movie_name, movie_year = topic_agent.run()
     
     if not movie_name:
         print("😴 今日无合适选题，程序休眠。")
@@ -35,7 +36,8 @@ def main():
     try:
         fetcher = MetaFetcher()
         # 获取所有评分、票房、年份等元数据
-        meta_data = fetcher.fetch_all(movie_name)
+        # [修改] 传递 movie_year，进行精准锚定
+        meta_data = fetcher.fetch_all(movie_name, specific_year=movie_year)
     except Exception as e:
         # 若数据猎取阶段熔断 (如无评分)，则终止流程，防止生成垃圾内容
         print(f"❌ 数据猎取失败，终止流程: {e}")
@@ -84,7 +86,8 @@ def main():
         history.save(movie_name)
         
         # [Fix] 核心修复：调用 TopicAgent 移除 pending 列表中的对应项
-        topic_agent.finish_pending(movie_name)
+        # [修改] 传递 movie_year (尽管 topic_agent 内部可能只用 fuzzy match，但为了接口一致性)
+        topic_agent.finish_pending(movie_name, movie_year)
         
         print(f"\n🎉 恭喜！《{movie_name}》发布流程圆满完成！")
     else:
