@@ -61,6 +61,14 @@ class Strategy:
         # False: 标题必须是纯文字 (如 "教父：黑帮史诗")，且降级策略中不包含删除 Emoji 步骤。
         ENABLE_TITLE_EMOJI: bool = True
 
+        # [新增] 1000部阅片计划配置
+        # 计划总目标
+        PROJECT_TOTAL_COUNT: int = 1000
+        # 进度条文案模板 
+        # 变量: {current}代表当前第几部, {total}代表总数
+        # 建议保留换行符 \n 以确保与正文隔开
+        PROGRESS_BAR_TEMPLATE: str = "\n📅 1000部电影推荐计划：{current}/{total}"
+
 
 # ================= 路径配置 (定海神针) =================
 # 获取当前文件(config.py)所在的目录，即项目根目录

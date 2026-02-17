@@ -4,7 +4,7 @@ import requests
 import random
 import re
 import config
-from utils import LLMBrain
+from utils import LLMBrain, HistoryManager # [修改] 引入 HistoryManager 用于计算进度
 
 # ==============================================================================
 # 🎨 全局美学协议 (High-End Aesthetics Protocol v2.0)
@@ -202,8 +202,8 @@ class WriterAgent:
            
         8. hot_comments (评论区处理规则):
            * **中英对照模式**：
-             - 若素材是外语：必须输出 `“中文意译 (Original English Key Sentence)”` 的格式。英文部分仅保留最核心的一句金句。
-             - 若素材是中文：直接保留原话。
+             - 若素材是外语：必须严格按照 `English Key Sentence\\n中文意译` 的格式输出。**英文在前，中文在后，中间用换行符分隔。不要自己加引号。**
+             - 若素材是中文：直接保留原话，不要加引号。
            * **长度铁律**：单条评论（含中英双语内容）的总字数**严禁超过 60 字**。
            * **语气要求**：中文部分必须像真实的中国网友发言（口语化、带情绪），拒绝机翻腔。
 
@@ -227,8 +227,89 @@ class WriterAgent:
                 print("❌ 文案生成失败：标题始终无法通过合规性检查（长度或缺失片名）。")
                 return None
 
-            # === 5. 组装最终正文 ===
-            final_content = self._assemble_content(data, selected_emojis, meta_data)
+            # === 5. 组装最终正文 (含进度条逻辑) ===
+            
+            # [新增] 提前生成 1000部阅片计划进度条
+            # 策略: 实时扫描 HistoryManager 获取已发布数量 + 1
+            progress_str = ""
+            try:
+                history_manager = HistoryManager()
+                past_count = len(history_manager.get_all_movies())
+                current_index = past_count + 1
+                total_target = config.Strategy.Writer.PROJECT_TOTAL_COUNT
+                
+                # 格式化文案 (如: "\n📅 1000部电影推荐计划：51/1000")
+                progress_str = config.Strategy.Writer.PROGRESS_BAR_TEMPLATE.format(
+                    current=current_index, 
+                    total=total_target
+                )
+                print(f"   📊 [Project] 进度计算: {current_index}/{total_target}")
+                
+            except Exception as e:
+                # 健壮性保护：如果读取历史失败，仅打印警告，进度条置空，不影响主流程
+                print(f"   ⚠️ 进度条生成失败 (非致命): {e}")
+                progress_str = ""
+
+            # 最终正文内容 (此变量用于返回)
+            final_content = ""
+
+            # ------------------------------------------------------------------
+            # 📜 正文篇幅控制逻辑 (The Content Loop) - [修改版: 纳入进度条]
+            # ------------------------------------------------------------------
+            rewrite_steps = [
+                ('highlight_expansion', '深度发散'),
+                ('synopsis', '剧情简介'),
+                ('highlight_expansion', '深度发散'), 
+                ('synopsis', '剧情简介')
+            ]
+            step_index = 0
+            
+            while True:
+                # 临时组装以检查长度
+                base_text = self._assemble_content(data, selected_emojis, meta_data)
+                # [关键修改] 将进度条纳入总长度计算
+                current_text = base_text + progress_str
+                
+                current_len = self._count(current_text)
+                
+                if current_len <= 1000:
+                    final_content = current_text # 长度达标，锁定内容
+                    break 
+                
+                # 策略1: 优先删除评论
+                comments = data.get('hot_comments', [])
+                if comments:
+                    if len(comments) >= 2:
+                        removed = comments.pop()
+                        print(f"   ✂️ [长度优化] 正文超限({current_len}字，含进度条)，删除 1 条末尾评论...")
+                    else:
+                        data['hot_comments'] = [] 
+                        print(f"   ✂️ [长度优化] 正文仍超限，移除整个评论区板块...")
+                    continue 
+                
+                # 策略2: AI 递归精简正文段落
+                if step_index < len(rewrite_steps):
+                    field, name = rewrite_steps[step_index]
+                    step_index += 1
+                    
+                    print(f"   📉 [AI重写] 正文仍超限({current_len}字)，正在精简“{name}”部分...")
+                    
+                    origin_text = data.get(field, "")
+                    prompt = f"""
+                    请将以下这段关于电影的【{name}】内容进行精简。
+                    原内容：
+                    {origin_text}
+                    要求：保留核心看点，语言紧凑，必须比原来篇幅更短。直接返回内容。
+                    """
+                    
+                    new_text = self.brain.think(prompt, system_prompt="你是一个擅长精简文案的编辑。")
+                    if new_text:
+                        data[field] = new_text.strip().replace('"', '')
+                    continue 
+                
+                print(f"   ⚠️ 经过所有缩减努力，正文依然略长 ({current_len}字)。保留当前版本。")
+                final_content = current_text
+                break
             
             return {
                 "title": data['title'],
@@ -322,9 +403,24 @@ class WriterAgent:
 
         comments_section = ""
         # 仅当有评论素材时才生成此板块
+        # [修改] 双语评论优化逻辑：智能拆解换行符，分别加引号
         if data.get('hot_comments'):
-            comments = [f"“{c}”" for c in data['hot_comments']]
-            comments_str = "\n".join(comments)
+            formatted_comments = []
+            for c in data['hot_comments']:
+                if "\n" in c:
+                    # 双语模式：拆分 -> 英文直引号 -> 中文全角引号
+                    parts = c.split("\n")
+                    english_part = parts[0].strip()
+                    # 容错：防止没有第二行
+                    chinese_part = parts[1].strip() if len(parts) > 1 else ""
+                    
+                    formatted = f'"{english_part}"\n“{chinese_part}”'
+                    formatted_comments.append(formatted)
+                else:
+                    # 纯中文模式：直接全角引号
+                    formatted_comments.append(f'“{c}”')
+            
+            comments_str = "\n".join(formatted_comments)
             # [UI调整] 标题已从“关于电影”改为“电影评论”
             comments_section = f"{emojis['comment']} 电影评论\n{comments_str}\n\n"
         
@@ -485,58 +581,8 @@ class WriterAgent:
             # 循环继续，回到开头重新检查...
 
         # ==========================================================
-        # 📜 正文篇幅控制逻辑 (The Content Loop)
+        # 📜 正文篇幅控制逻辑在上方已被替换 (The Content Loop)
         # ==========================================================
-        # 压缩优先级: hot_comments (直接删) -> highlight_expansion (AI精简) -> synopsis (AI精简)
-        rewrite_steps = [
-            ('highlight_expansion', '深度发散'),
-            ('synopsis', '剧情简介'),
-            ('highlight_expansion', '深度发散'), 
-            ('synopsis', '剧情简介')
-        ]
-        step_index = 0
-        
-        while True:
-            # 临时组装以检查长度
-            current_text = self._assemble_content(data, emojis, meta_data)
-            current_len = self._count(current_text)
-            
-            if current_len <= 1000:
-                break 
-            
-            # 策略1: 优先删除评论
-            comments = data.get('hot_comments', [])
-            if comments:
-                if len(comments) >= 2:
-                    removed = comments.pop()
-                    print(f"   ✂️ [长度优化] 正文超限({current_len}字)，删除 1 条末尾评论...")
-                else:
-                    data['hot_comments'] = [] 
-                    print(f"   ✂️ [长度优化] 正文仍超限，移除整个评论区板块...")
-                continue 
-            
-            # 策略2: AI 递归精简正文段落
-            if step_index < len(rewrite_steps):
-                field, name = rewrite_steps[step_index]
-                step_index += 1
-                
-                print(f"   📉 [AI重写] 正文仍超限({current_len}字)，正在精简“{name}”部分...")
-                
-                origin_text = data.get(field, "")
-                prompt = f"""
-                请将以下这段关于电影的【{name}】内容进行精简。
-                原内容：
-                {origin_text}
-                要求：保留核心看点，语言紧凑，必须比原来篇幅更短。直接返回内容。
-                """
-                
-                new_text = self.brain.think(prompt, system_prompt="你是一个擅长精简文案的编辑。")
-                if new_text:
-                    data[field] = new_text.strip().replace('"', '')
-                continue 
-            
-            print(f"   ⚠️ 经过所有缩减努力，正文依然略长 ({current_len}字)。保留当前版本。")
-            break
         
         return True
 
