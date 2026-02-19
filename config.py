@@ -43,6 +43,16 @@ class Strategy:
         # 0.5 为均分。0.6 表示第一行占 60% 宽度，第二行占 40%，形成上宽下窄的高级感。
         TOP_HEAVY_RATIO: float = 0.55
 
+        # [v4.0 新增] 是否在合集长图后追加单部电影的详情图 (总分排版法)
+        # True: 列表将呈现 [长图1, 长图2, ..., 单图1, 单图2...]，适合 12 部以内的合集 (极大提升阅读体验)。
+        # False: 列表仅呈现 [长图1, 长图2...]，适合 13-18 部的超大合集 (防止触发小红书图片超限报错)。
+        APPEND_DETAIL_IMAGES: bool = True
+        
+        # [v4.0 新增] 追加的单图类型 (仅当 APPEND_DETAIL_IMAGES 为 True 时生效)
+        # "rendered": 渲染图 (经过 16:9 居中裁剪，并带有台词、评分、阴影排版的高级图)
+        # "original": 原图 (直接使用文件夹里最原始的、无任何文字的纯净剧照，零I/O开销)
+        DETAIL_IMAGE_TYPE: str = "original"
+
     class Writer:
         """文案策略配置 (WriterAgent)"""
         
@@ -97,7 +107,10 @@ HISTORY_FILE = os.path.join(BASE_DIR, "history.json")
 
 # [v4.0 新增] 合集模式相关路径
 COLLECTION_DIR = os.path.join(BASE_DIR, "资料", "collections")
-LOCAL_SCORES_FILE = os.path.join(BASE_DIR, "资料", "local_scores.json")
+
+# [修改] 独立 score 文件夹，存放本地分数
+SCORE_DIR = os.path.join(BASE_DIR, "资料", "score")
+LOCAL_SCORES_FILE = os.path.join(SCORE_DIR, "local_scores.json")
 
 # [v4.0 新增] 字体精确路径配置 (Adobe 官方命名规范)
 FONT_TITLE_PATH = os.path.join(BASE_DIR, "资料", "fonts", "思源黑体", "SourceHanSansSC-Bold.otf")
@@ -116,6 +129,20 @@ if not os.path.exists(LOCAL_IMAGE_DIR):
 if not os.path.exists(COLLECTION_DIR):
     try:
         os.makedirs(COLLECTION_DIR, exist_ok=True)
+    except:
+        pass
+
+# [新增] 自动创建 score 存放目录及初始 JSON
+if not os.path.exists(SCORE_DIR):
+    try:
+        os.makedirs(SCORE_DIR, exist_ok=True)
+    except:
+        pass
+
+if not os.path.exists(LOCAL_SCORES_FILE):
+    try:
+        with open(LOCAL_SCORES_FILE, 'w', encoding='utf-8') as f:
+            f.write("{}")
     except:
         pass
 

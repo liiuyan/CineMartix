@@ -94,6 +94,25 @@ class CollectionVisualAgent:
                     final_images_paths.append(save_path)
                     print(f"      ✅ 成功生成独立横版剧照: collection_single_{group_index}_{j+1}.jpg")
                     
+        # 3. [新增] 追加单图逻辑 (防爆阀门与内容阀门)
+        append_details = getattr(config.Strategy.Visual, 'APPEND_DETAIL_IMAGES', True)
+        if append_details:
+            detail_type = getattr(config.Strategy.Visual, 'DETAIL_IMAGE_TYPE', 'rendered')
+            print(f"\n   📸 开始追加单部电影详情图 (模式: {detail_type})...")
+            
+            if detail_type == "original":
+                # 零 I/O 极简优化：直接读取绝对路径，不产生新文件
+                for i, movie in enumerate(movies):
+                    final_images_paths.append(movie['path'])
+                    print(f"      ✅ 成功追加原图: {os.path.basename(movie['path'])}")
+            else:
+                # 渲染图模式：逐张保存渲染画布
+                for i, canvas in enumerate(rendered_canvases):
+                    save_path = os.path.join(output_dir, f"collection_detail_{i+1}.jpg")
+                    canvas.save(save_path, quality=95)
+                    final_images_paths.append(save_path)
+                    print(f"      ✅ 成功生成并追加独立排版图: collection_detail_{i+1}.jpg")
+                    
         return final_images_paths
 
     def _render_single_movie(self, movie: dict) -> Image.Image | None:

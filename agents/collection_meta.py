@@ -47,22 +47,37 @@ class CollectionMetaFetcher:
             print(f"   🔍 正在查询: 《{movie_name}》")
             
             # --- 方案 A: 尝试从本地 JSON 获取 ---
+            has_full_cache = False
             if self.use_local and movie_name in local_scores:
-                print(f"      📥 命中本地缓存 (local_scores.json)")
+                local_data = local_scores[movie_name]
+                # [核心修改] 满血判定：除了要包含 4 个键，且核心分数 (douban, imdb) 不能是 N/A
+                has_all_keys = all(k in local_data for k in ("douban", "imdb", "rotten_tomatoes", "metacritic"))
+                
+                if has_all_keys:
+                    if local_data.get("douban") == "N/A" or local_data.get("imdb") == "N/A":
+                        has_full_cache = False
+                        print(f"      🔄 本地缓存存在脏数据/未开分(N/A)，触发无限重试机制...")
+                    else:
+                        has_full_cache = True
+            
+            if has_full_cache:
+                print(f"      📥 命中本地缓存 (local_scores.json 满血状态)")
                 local_data = local_scores[movie_name]
                 # 兼容处理：防呆，防止 JSON 里写了数字类型或 None
                 douban_score = str(local_data.get('douban', '')).strip()
                 imdb_score = str(local_data.get('imdb', '')).strip()
             
-            # --- 方案 B: 降级调用网络 API 抓取 ---
+            # --- 方案 B: 降级调用网络 API 抓取 (增量补齐或全量抓取) ---
             else:
-                if self.use_local:
+                if self.use_local and movie_name in local_scores:
+                    print(f"      🌐 本地缓存未满血(存在缺失或N/A)，触发 API 抓取补齐...")
+                elif self.use_local:
                     print(f"      🌐 本地缓存未命中，降级调用 API 网络抓取...")
                 else:
                     print(f"      🌐 本地读取已关闭，直接调用 API 网络抓取...")
                     
                 try:
-                    # 调用原版的 fetch_all 逻辑获取元数据
+                    # 调用原版的 fetch_all 逻辑获取元数据，它会自动处理局部缓存并保存新数据
                     api_data = self.api_fetcher.fetch_all(movie_name)
                     douban_score = str(api_data.get('douban', '')).strip()
                     imdb_score = str(api_data.get('imdb', '')).strip()
