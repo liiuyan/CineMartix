@@ -1,0 +1,62 @@
+{
+  "看不见的客人": {
+    "douban": "8.8",
+    "imdb": "8.0",
+    "rotten_tomatoes": "67%",
+    "metacritic": "N/A"
+  },
+  "盗梦空间": {
+    "imdb": "8.8",
+    "rotten_tomatoes": "87%",
+    "metacritic": "74",
+    "douban": "9.4"
+  },
+  "星际穿越": {
+    "imdb": "8.7",
+    "rotten_tomatoes": "73%",
+    "metacritic": "74",
+    "douban": "9.4"
+  },
+  "信条": {
+    "imdb": "7.3",
+    "rotten_tomatoes": "70%",
+    "metacritic": "69",
+    "douban": "7.6"
+  },
+  "蝙蝠侠：侠影之谜": {
+    "imdb": "8.2",
+    "rotten_tomatoes": "85%",
+    "metacritic": "70",
+    "douban": "8.6"
+  },
+  "蝙蝠侠：黑暗骑士": {
+    "imdb": "9.1",
+    "rotten_tomatoes": "94%",
+    "metacritic": "85",
+    "douban": "9.2"
+  },
+  "蝙蝠侠：黑暗骑士崛起": {
+    "imdb": "8.4",
+    "rotten_tomatoes": "87%",
+    "metacritic": "78",
+    "douban": "8.9"
+  },
+  "奥本海默": {
+    "imdb": "8.2",
+    "rotten_tomatoes": "93%",
+    "metacritic": "90",
+    "douban": "8.8"
+  },
+  "致命魔术": {
+    "imdb": "8.5",
+    "rotten_tomatoes": "77%",
+    "metacritic": "66",
+    "douban": "8.9"
+  },
+  "记忆碎片": {
+    "imdb": "8.4",
+    "rotten_tomatoes": "93%",
+    "metacritic": "83",
+    "douban": "8.7"
+  }
+}

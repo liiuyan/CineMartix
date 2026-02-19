@@ -111,14 +111,14 @@ class LLMBrain:
             return None
 
 # ==========================================
-# [升级] 数据猎手模块 (MetaFetcher v2.4 - 稳健精简版)
+# [升级] 数据猎手模块 (MetaFetcher v2.6 - 多级锚定重试版)
 # ==========================================
 class MetaFetcher:
     """
     📊 数据猎手 (MetaFetcher)
     
     核心流程:
-    1. 身份核验: LLM 确认英文名和年份，防止中文同名混淆。
+    1. 身份核验: LLM 提取原版外文名和年份，防止中文同名混淆。
     2. TMDB 锚定: 获取 ID、官方译名、海报、票房数据。
     3. 数据融合:
        - TMDB: 票房 (revenue)
@@ -132,6 +132,31 @@ class MetaFetcher:
         self.serper_key = config.SERPER_API_KEY or config.SEARCH_API_KEY
         self.brain = LLMBrain()
 
+    def _load_local_scores(self):
+        """[新增] 安全读取本地 JSON 分数文件"""
+        if not os.path.exists(config.LOCAL_SCORES_FILE):
+            return {}
+        try:
+            with open(config.LOCAL_SCORES_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {}
+
+    def _save_to_local(self, movie_name, new_entries):
+        """[新增] 增量保存分数到本地 JSON"""
+        if not new_entries:
+            return
+        local_scores = self._load_local_scores()
+        if movie_name not in local_scores:
+            local_scores[movie_name] = {}
+        local_scores[movie_name].update(new_entries)
+        
+        try:
+            with open(config.LOCAL_SCORES_FILE, 'w', encoding='utf-8') as f:
+                json.dump(local_scores, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"   ⚠️ 写入 local_scores.json 失败: {e}")
+
     def fetch_all(self, movie_name, specific_year=None):
         """
         [升级] 接收 specific_year 用于精准锚定
@@ -141,21 +166,27 @@ class MetaFetcher:
         
         # === Step 0: 身份核验 (Identity Resolution) ===
         # 解决中文同名/译名混淆问题 (如 "狩猎" vs "狩猎人")
-        # [升级] 传入特定年份以消除歧义
+        # [升级] 提取原版外文名，取代容易犯错的纯英文名
         identity = self._resolve_identity(movie_name, specific_year)
         
-        # 确定 TMDB 搜索的锚点
+        search_year = specific_year if specific_year else ""
+        original_title = None
+        
         if identity:
-            search_query = identity['en_title']
-            search_year = identity['year']
-            print(f"   🆔 身份核验成功: 锁定为 '{search_query}' ({search_year})")
+            search_year = identity.get('year', search_year)
+            original_title = identity.get('original_title')
+            print(f"   🆔 身份核验成功: 解析到原版外文名 '{original_title}' ({search_year})")
         else:
-            search_query = movie_name
-            search_year = specific_year if specific_year else ""
-            print(f"   ⚠️ 身份核验失败，降级使用中文名搜索: '{search_query}'")
+            print(f"   ⚠️ 身份核验失败，将直接使用中文名盲搜: '{movie_name}'")
 
         # === Step 1: TMDB 锚定 (Anchor) ===
-        base_info = self._get_tmdb_base(search_query, search_year)
+        # [核心升级] 多级降级精准锚定策略
+        base_info = self._get_tmdb_base(movie_name, search_year)
+        
+        if not base_info and original_title and original_title.lower() != movie_name.lower():
+            print(f"   ⚠️ 中文名搜索未命中，降级使用原版外文名搜索: '{original_title}'")
+            base_info = self._get_tmdb_base(original_title, search_year)
+
         if not base_info:
             print("   ❌ TMDB 未找到影片信息，将使用空数据兜底。")
             return {}
@@ -175,6 +206,9 @@ class MetaFetcher:
                 # 打印友好的日志
                 print(f"   💰 票房数据获取: 约 {revenue_cny / 100000000:.1f} 亿人民币")
 
+        local_scores = self._load_local_scores()
+        movie_cache = local_scores.get(movie_name, {})
+
         scores = {
             "year": final_year,
             "tmdb_id": tmdb_id, # [Plan B] 关键修改: 必须将 TMDB ID 传递给下游
@@ -186,20 +220,51 @@ class MetaFetcher:
         }
 
         # === Step 2: 西方数据 (OMDB) ===
+        fetched_new_omdb = False
         if self.omdb_key and imdb_id:
-            omdb_data = self._get_omdb_scores(imdb_id)
-            scores.update(omdb_data)
-            print(f"   ✅ OMDB 数据获取: IMDb={scores['imdb']}, 🍅(影评人)={scores['rotten_tomatoes']}, Ⓜ️ ={scores['metacritic']}")
+            # [核心修改] 严选逻辑：如果缓存中的 imdb 是 "N/A"，拒绝命中，强制重新调 API 抓取
+            if "imdb" in movie_cache and "rotten_tomatoes" in movie_cache and "metacritic" in movie_cache and movie_cache.get("imdb") != "N/A":
+                scores["imdb"] = movie_cache["imdb"]
+                scores["rotten_tomatoes"] = movie_cache["rotten_tomatoes"]
+                scores["metacritic"] = movie_cache["metacritic"]
+                print(f"   📥 命中本地缓存 (OMDB数据)")
+            else:
+                omdb_data = self._get_omdb_scores(imdb_id)
+                if omdb_data:
+                    fetched_new_omdb = True
+                    scores.update(omdb_data)
+                    print(f"   ✅ OMDB 数据获取: IMDb={scores['imdb']}, 🍅(影评人)={scores['rotten_tomatoes']}, Ⓜ️ ={scores['metacritic']}")
         
         # === Step 3: 豆瓣评分 (Serper - 使用官方中文名) ===
         # 策略：用 TMDB 返回的官方中文名 搜豆瓣
+        fetched_new_douban = False
         if self.serper_key:
-            douban_score = self._get_douban_score(official_cn_name, final_year)
-            if douban_score:
-                scores["douban"] = douban_score
-                print(f"   ✅ Serper + LLM 提取豆瓣分: {douban_score}")
+            # [核心修改] 严选逻辑：如果缓存中的 douban 是 "N/A"，拒绝命中，强制重新调 API 抓取
+            if "douban" in movie_cache and movie_cache.get("douban") != "N/A":
+                scores["douban"] = movie_cache["douban"]
+                print(f"   📥 命中本地缓存 (豆瓣数据)")
             else:
-                print(f"   ⚠️ 豆瓣评分提取失败 (N/A)")
+                douban_score = self._get_douban_score(official_cn_name, final_year)
+                if douban_score is not None:
+                    fetched_new_douban = True
+                    scores["douban"] = douban_score
+                    print(f"   ✅ Serper + LLM 提取豆瓣分: {douban_score}")
+                else:
+                    print(f"   ⚠️ 豆瓣评分提取失败或网络波动 (本次不计入缓存)")
+
+        # [新增] 全局底层写入逻辑：只要调了 API（无论是第一次查还是重试覆盖），都保存进去
+        new_cache_entries = {}
+        if fetched_new_omdb:
+            new_cache_entries["imdb"] = scores["imdb"]
+            new_cache_entries["rotten_tomatoes"] = scores.get("rotten_tomatoes", "N/A")
+            new_cache_entries["metacritic"] = scores.get("metacritic", "N/A")
+            
+        if fetched_new_douban:
+            new_cache_entries["douban"] = scores["douban"]
+            
+        if new_cache_entries:
+            self._save_to_local(movie_name, new_cache_entries)
+            print(f"   💾 [缓存] 成功将《{movie_name}》的评分(含重试更新)写入本地。")
 
         # === Step 4: [新增] 数据质量熔断检查 (Quality Gate) ===
         # 要求：豆瓣和IMDb评分至少有一个获取到，否则报错中断
@@ -220,15 +285,16 @@ class MetaFetcher:
             prompt = f"""
             Task: Identify the movie "{movie_name}".
             {constraint}
-            Return valid JSON with its **Official English Title** and **Release Year**.
+            Return valid JSON with its **Original Title** (the native language title, e.g., Spanish title for a Spanish movie) and **Release Year**.
             
             Example:
-            Input: "霸王别姬" -> {{"en_title": "Farewell My Concubine", "year": "1993"}}
-            Input: "狩猎" (Mads Mikkelsen) -> {{"en_title": "The Hunt", "year": "2012"}}
+            Input: "霸王别姬" -> {{"original_title": "霸王别姬", "year": "1993"}}
+            Input: "看不见的客人" -> {{"original_title": "Contratiempo", "year": "2016"}}
+            Input: "狩猎" (Mads Mikkelsen) -> {{"original_title": "Jagten", "year": "2012"}}
             
             JSON format only:
             {{
-                "en_title": "...",
+                "original_title": "...",
                 "year": "..."
             }}
             """
@@ -322,6 +388,11 @@ class MetaFetcher:
                         res["rotten_tomatoes"] = r["Value"]
                     elif r["Source"] == "Metacritic":
                         res["metacritic"] = r["Value"].split("/")[0]
+            else:
+                # [新增] 明确找不到，放入 N/A 防止缓存穿透
+                res["imdb"] = "N/A"
+                res["rotten_tomatoes"] = "N/A"
+                res["metacritic"] = "N/A"
         except Exception as e:
             print(f"   ⚠️ OMDB 获取失败: {e}")
         return res
@@ -368,7 +439,7 @@ class MetaFetcher:
             
             match = re.search(r"\d+\.\d", score)
             if match: return match.group(0)
-            if "N/A" in score: return None
+            if "N/A" in score: return "N/A" # [修改] 将 return None 改为 return "N/A"，代表明确无分数
             if score.isdigit() and len(score) < 3: return score
             return None
             
