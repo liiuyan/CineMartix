@@ -218,6 +218,17 @@ class WriterAgent:
             clean_json = response.replace("```json", "").replace("```", "").strip()
             data = json.loads(clean_json)
             
+            # =================================================================
+            # 🛡️ [终极物理防御补丁] 拦截 AI 数据格式幻觉
+            # 如果大模型抽风把 hot_comments 输出成了字符串，强制把它变成列表
+            # =================================================================
+            if 'hot_comments' in data:
+                if isinstance(data['hot_comments'], str):
+                    data['hot_comments'] = [data['hot_comments']]
+                elif not isinstance(data['hot_comments'], list):
+                    data['hot_comments'] = []
+            # =================================================================
+            
             # === 4. 智能篇幅控制 (Sanitization) ===
             # 这里包含标题重写逻辑和正文压缩逻辑
             # [Fix] 传入 movie_name，用于标题合规性检查

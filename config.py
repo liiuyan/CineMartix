@@ -13,6 +13,14 @@ class Strategy:
     用于集中管理视觉、文案等模块的核心参数，避免硬编码。
     """
     
+    class System:
+        """[v4.0 新增] 系统运行模式与全局配置"""
+        # 运行模式选择: "single" (单片模式) 或 "collection" (合集盘点模式)
+        RUN_MODE: str = "collection" 
+        
+        # 本地分数兜底开关 (仅对合集模式有效)
+        USE_LOCAL_SCORES: bool = True
+
     class Visual:
         """视觉策略配置 (VisualAgent)"""
         
@@ -30,6 +38,10 @@ class Strategy:
         # - 大于 0.8: 只有几乎一样的图才会被去重 (宽松)
         # - 小于 0.7: 构图相似的图也会被去重 (严格)
         CLIP_THRESHOLD: float = 0.75
+        
+        # [v4.0 新增] 合集排版：倒三角视觉平衡折行比例
+        # 0.5 为均分。0.6 表示第一行占 60% 宽度，第二行占 40%，形成上宽下窄的高级感。
+        TOP_HEAVY_RATIO: float = 0.55
 
     class Writer:
         """文案策略配置 (WriterAgent)"""
@@ -83,10 +95,27 @@ LOCAL_FONT_PATH = os.path.join(BASE_DIR, "资料", "fonts", "font.ttf")
 # 历史记录文件路径 (用于去重)
 HISTORY_FILE = os.path.join(BASE_DIR, "history.json")
 
+# [v4.0 新增] 合集模式相关路径
+COLLECTION_DIR = os.path.join(BASE_DIR, "资料", "collections")
+LOCAL_SCORES_FILE = os.path.join(BASE_DIR, "资料", "local_scores.json")
+
+# [v4.0 新增] 字体精确路径配置 (Adobe 官方命名规范)
+FONT_TITLE_PATH = os.path.join(BASE_DIR, "资料", "fonts", "思源黑体", "SourceHanSansSC-Bold.otf")
+FONT_SCORE_PATH = os.path.join(BASE_DIR, "资料", "fonts", "思源黑体", "SourceHanSansSC-Medium.otf")
+FONT_QUOTE_PATH = os.path.join(BASE_DIR, "资料", "fonts", "思源宋体", "SourceHanSerifSC-Bold.otf")
+FONT_SUMMARY_PATH = os.path.join(BASE_DIR, "资料", "fonts", "思源宋体", "SourceHanSerifSC-Regular.otf")
+
 # 自动创建必要目录
 if not os.path.exists(LOCAL_IMAGE_DIR):
     try:
         os.makedirs(LOCAL_IMAGE_DIR, exist_ok=True)
+    except:
+        pass
+
+# [v4.0 新增] 自动创建合集存放目录
+if not os.path.exists(COLLECTION_DIR):
+    try:
+        os.makedirs(COLLECTION_DIR, exist_ok=True)
     except:
         pass
 
