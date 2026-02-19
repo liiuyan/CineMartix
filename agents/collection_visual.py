@@ -26,7 +26,9 @@ class CollectionVisualAgent:
         self.GAP_BETWEEN_TEXT = 20    # 金句与简介间距
 
         # --- C. 底部文字两侧留白 (控制文字换行宽度) ---
-        self.MARGIN_SIDE_TEXT = 60   # 底部文字两侧留白
+        # [修改] 解耦金句与简介的留白控制，分别控制以实现更灵活的排版
+        self.MARGIN_SIDE_QUOTE = 60     # 金句两侧留白
+        self.MARGIN_SIDE_SUMMARY = 60   # 简介两侧留白
         
         # --- D. 字体大小 ---
         self.SIZE_TITLE = 150
@@ -155,7 +157,8 @@ class CollectionVisualAgent:
             # 1. 清洗与绘制简介
             raw_summary = movie.get('summary', '')
             clean_summary = raw_summary.rstrip('。. ”"') # 仅去除尾部句号，保留中间标点
-            sum_h = self._draw_bottom_stack(draw, clean_summary, center_x, bottom_limit, font_summary, self.COLOR_WHITE, canvas)
+            # [修改] 传递专属于简介的留白参数
+            sum_h = self._draw_bottom_stack(draw, clean_summary, center_x, bottom_limit, font_summary, self.COLOR_WHITE, canvas, self.MARGIN_SIDE_SUMMARY)
             
             # 2. 清洗、加双引号与绘制金句
             raw_quote = movie.get('quote', '')
@@ -164,7 +167,8 @@ class CollectionVisualAgent:
                 clean_quote = f"“{clean_quote}”"  # 强制使用中文双引号包裹
                 
             quote_limit = bottom_limit - sum_h - self.GAP_BETWEEN_TEXT
-            self._draw_bottom_stack(draw, clean_quote, center_x, quote_limit, font_quote, self.COLOR_GOLD, canvas)
+            # [修改] 传递专属于金句的留白参数
+            self._draw_bottom_stack(draw, clean_quote, center_x, quote_limit, font_quote, self.COLOR_GOLD, canvas, self.MARGIN_SIDE_QUOTE)
 
             return canvas
             
@@ -172,12 +176,13 @@ class CollectionVisualAgent:
             print(f"      ❌ 渲染失败 {movie['name']}: {e}")
             return None
 
-    def _draw_bottom_stack(self, draw: ImageDraw, text: str, center_x: int, bottom_y: int, font: ImageFont.FreeTypeFont, color: str, canvas: Image.Image) -> int:
+    def _draw_bottom_stack(self, draw: ImageDraw, text: str, center_x: int, bottom_y: int, font: ImageFont.FreeTypeFont, color: str, canvas: Image.Image, margin_side: int) -> int:
         """底部文字堆叠：倒三角视觉平衡折行，居中对齐，自下而上绘制。返回占据的总高度。"""
         if not text:
             return 0
             
-        max_width = 1920 - (self.MARGIN_SIDE_TEXT * 2)
+        # [修改] 使用传入的 margin_side 动态计算当前文本块的最大宽度
+        max_width = 1920 - (margin_side * 2)
         lines = self._inverted_pyramid_wrap(text, font, draw, max_width)
         
         # 计算总高度

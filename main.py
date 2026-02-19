@@ -140,6 +140,15 @@ def run_collection_mode():
     real_title = topic_data['title']
     real_content = writer_data['content']
     
+    # [新增] 动态组装高优精简 Tags (T0主题 + T1流量池 + T2前4部电影)
+    raw_theme = topic_data['theme'].replace(" ", "")
+    movie_tags = [m['name'].replace(" ", "") for m in writer_data['movies']][:4]
+    final_tags = [raw_theme, "电影推荐"] + movie_tags
+    
+    # [新增] 模拟 Tags 拼接成 "#标签" 后的字符串，以便合并计算总长度
+    tags_str = " ".join([f"#{t}" for t in final_tags])
+    total_content_len = len(real_content) + len(tags_str)
+    
     # 🚨 触发式熔断：绝不自动截断，超限直接报错终止！
     if len(real_title) > 20:
         print(f"\n   ❌ [致命错误] 标题长度超限 (当前 {len(real_title)} 字，极限 20 字)。")
@@ -147,19 +156,19 @@ def run_collection_mode():
         print(f"      -> 请修改文件夹名称中的标题部分后，重新运行程序！")
         return
         
-    if len(real_content) > 1000:
-        print(f"\n   ❌ [致命错误] 正文长度超限 (当前 {len(real_content)} 字，极限 1000 字)。")
+    if total_content_len > 990:
+        print(f"\n   ❌ [致命错误] 正文及标签总长度超限 (当前 {total_content_len} 字，极限 990 字)。")
         print(f"      -> AI 发散过长，已中断。请清理 output 文件夹后重新运行程序，让 AI 重写！")
         return
 
     note_data = {
         "title": real_title,
         "content": real_content,
-        "tags": [topic_data['theme'].replace(" ", "")]  # 完美转换：莱昂纳多 -> #莱昂纳多
+        "tags": final_tags  # 完美转换：加入核心主题与前4部电影
     }
     
     print(f"   [安全检查] 最终标题长度合规: {len(real_title)}/20")
-    print(f"   [安全检查] 最终正文长度合规: {len(real_content)}/1000")
+    print(f"   [安全检查] 最终正文及标签总长度合规: {total_content_len}/990")
     
     success = execution_agent.run(note_data, final_images)
     

@@ -238,7 +238,7 @@ class WriterAgent:
                 print("❌ 文案生成失败：标题始终无法通过合规性检查（长度或缺失片名）。")
                 return None
 
-            # === 5. 组装最终正文 (含进度条逻辑) ===
+            # === 5. 组装最终正文 (含进度条逻辑与 Tags 动态长度计算) ===
             
             # [新增] 提前生成 1000部阅片计划进度条
             # 策略: 实时扫描 HistoryManager 获取已发布数量 + 1
@@ -261,11 +261,16 @@ class WriterAgent:
                 print(f"   ⚠️ 进度条生成失败 (非致命): {e}")
                 progress_str = ""
 
+            # [新增] 提取并动态组装 Tags 字符串，模拟真实发布时的占用长度
+            tags_list = data.get('tags', [])
+            # 格式化为小红书底层的 "#标签1 #标签2" 形式计算占位
+            tags_str = " ".join([f"#{t}" for t in tags_list]) if tags_list else ""
+
             # 最终正文内容 (此变量用于返回)
             final_content = ""
 
             # ------------------------------------------------------------------
-            # 📜 正文篇幅控制逻辑 (The Content Loop) - [修改版: 纳入进度条]
+            # 📜 正文篇幅控制逻辑 (The Content Loop) - [修改版: 纳入进度条与Tags]
             # ------------------------------------------------------------------
             rewrite_steps = [
                 ('highlight_expansion', '深度发散'),
@@ -278,13 +283,16 @@ class WriterAgent:
             while True:
                 # 临时组装以检查长度
                 base_text = self._assemble_content(data, selected_emojis, meta_data)
-                # [关键修改] 将进度条纳入总长度计算
-                current_text = base_text + progress_str
                 
-                current_len = self._count(current_text)
+                # [关键修改] 将进度条、额外空行以及 Tags 都纳入总长度计算！
+                # 注意：这里只是为了算长度，最终赋给 final_content 时不包含 tags_str (因为接口中 tags 是独立字段)
+                text_for_counting = base_text + progress_str + ("\n" + tags_str if tags_str else "")
                 
-                if current_len <= 1000:
-                    final_content = current_text # 长度达标，锁定内容
+                current_len = self._count(text_for_counting)
+                
+                # [关键修改] 阈值从 1000 下调至 990，预留底层 Emoji 长度缓冲区
+                if current_len <= 990:
+                    final_content = base_text + progress_str # 长度达标，锁定安全正文
                     break 
                 
                 # 策略1: 优先删除评论
@@ -292,10 +300,10 @@ class WriterAgent:
                 if comments:
                     if len(comments) >= 2:
                         removed = comments.pop()
-                        print(f"   ✂️ [长度优化] 正文超限({current_len}字，含进度条)，删除 1 条末尾评论...")
+                        print(f"   ✂️ [长度优化] 综合长度超限({current_len}/990字)，删除 1 条末尾评论...")
                     else:
                         data['hot_comments'] = [] 
-                        print(f"   ✂️ [长度优化] 正文仍超限，移除整个评论区板块...")
+                        print(f"   ✂️ [长度优化] 综合长度仍超限，移除整个评论区板块...")
                     continue 
                 
                 # 策略2: AI 递归精简正文段落
@@ -303,7 +311,7 @@ class WriterAgent:
                     field, name = rewrite_steps[step_index]
                     step_index += 1
                     
-                    print(f"   📉 [AI重写] 正文仍超限({current_len}字)，正在精简“{name}”部分...")
+                    print(f"   📉 [AI重写] 综合长度仍超限({current_len}/990字)，正在精简“{name}”部分...")
                     
                     origin_text = data.get(field, "")
                     prompt = f"""
@@ -318,8 +326,8 @@ class WriterAgent:
                         data[field] = new_text.strip().replace('"', '')
                     continue 
                 
-                print(f"   ⚠️ 经过所有缩减努力，正文依然略长 ({current_len}字)。保留当前版本。")
-                final_content = current_text
+                print(f"   ⚠️ 经过所有缩减努力，正文依然略长 ({current_len}/990字)。保留当前版本。")
+                final_content = base_text + progress_str
                 break
             
             return {
