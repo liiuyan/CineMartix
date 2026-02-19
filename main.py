@@ -8,7 +8,13 @@ from agents.writer import WriterAgent
 from agents.visual import VisualAgent
 from agents.execution import ExecutionAgent
 
-def main():
+# [v4.0 新增] 导入各职能 Agent (合集赛道)
+from agents.collection_topic import CollectionTopicAgent
+from agents.collection_meta import CollectionMetaFetcher
+from agents.collection_writer import CollectionWriterAgent
+from agents.collection_visual import CollectionVisualAgent
+
+def run_single_mode():
     """
     🚀 小红书全自动运营主程序 (Main Pipeline)
     
@@ -92,6 +98,91 @@ def main():
         print(f"\n🎉 恭喜！《{movie_name}》发布流程圆满完成！")
     else:
         print(f"\n❌ 发布失败，请检查 'xiaohongshu-mcp' 服务日志。")
+
+def run_collection_mode():
+    """
+    🚂 合集赛道 (Collection Track)
+    v4.0 完整流水线 (包含 Fail-Fast 铁血熔断机制)。
+    """
+    print("\n==========================================")
+    print("   🚂 [合集模式] Collection Pipeline Start   ")
+    print("==========================================")
+    
+    # === Step 1: 扫描文件夹 ===
+    topic_agent = CollectionTopicAgent()
+    topic_data = topic_agent.run()
+    if not topic_data:
+        return
+        
+    # === Step 2: 批量查分 ===
+    meta_fetcher = CollectionMetaFetcher()
+    movies_with_scores = meta_fetcher.run(topic_data['movies'])
+    
+    # === Step 3: AI 撰写文案与发散 ===
+    writer_agent = CollectionWriterAgent()
+    writer_data = writer_agent.run(topic_data['theme'], topic_data['title'], movies_with_scores)
+    if not writer_data:
+        return
+        
+    # === Step 4: 渲染 16:27 长图海报 ===
+    visual_agent = CollectionVisualAgent()
+    final_images = visual_agent.run(writer_data['movies'], topic_data['folder_path'])
+    if not final_images:
+        return
+        
+    # === Step 5: 组装与发布 (Fail-Fast 铁血查杀) ===
+    execution_agent = ExecutionAgent()
+    
+    # [逻辑对齐] CollectionTopicAgent 已经通过 | 完美切分了数据：
+    # topic_data['theme'] -> "莱昂纳多"
+    # topic_data['title'] -> "地球球草❗️小李子的6部必看电影"
+    
+    real_title = topic_data['title']
+    real_content = writer_data['content']
+    
+    # 🚨 触发式熔断：绝不自动截断，超限直接报错终止！
+    if len(real_title) > 20:
+        print(f"\n   ❌ [致命错误] 标题长度超限 (当前 {len(real_title)} 字，极限 20 字)。")
+        print(f"      超长标题: {real_title}")
+        print(f"      -> 请修改文件夹名称中的标题部分后，重新运行程序！")
+        return
+        
+    if len(real_content) > 1000:
+        print(f"\n   ❌ [致命错误] 正文长度超限 (当前 {len(real_content)} 字，极限 1000 字)。")
+        print(f"      -> AI 发散过长，已中断。请清理 output 文件夹后重新运行程序，让 AI 重写！")
+        return
+
+    note_data = {
+        "title": real_title,
+        "content": real_content,
+        "tags": [topic_data['theme'].replace(" ", "")]  # 完美转换：莱昂纳多 -> #莱昂纳多
+    }
+    
+    print(f"   [安全检查] 最终标题长度合规: {len(real_title)}/20")
+    print(f"   [安全检查] 最终正文长度合规: {len(real_content)}/1000")
+    
+    success = execution_agent.run(note_data, final_images)
+    
+    # === Step 6: 完美归档 ===
+    if success:
+        topic_agent.finish_collection(topic_data['folder_path'])
+        print("\n🎉 合集发布流程圆满完成，工作区已清理归档！")
+    else:
+        print("\n❌ 发布失败，请检查小红书接口日志。")
+
+def main():
+    """
+    🔀 小红书全自动运营主程序 (v4.0 路由版)
+    """
+    # 读取 config 中的硬开关
+    run_mode = getattr(getattr(config.Strategy, 'System', None), 'RUN_MODE', 'single')
+
+    if run_mode == "collection":
+        print("🔀 [Router] 检测到 config 设置为【合集模式 (Collection)】，驶入合集赛道...")
+        run_collection_mode()
+    else:
+        print("🔀 [Router] 检测到 config 设置为【单片模式 (Single)】，驶入常规赛道...")
+        run_single_mode()
 
 if __name__ == "__main__":
     try:
