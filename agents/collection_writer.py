@@ -40,14 +40,27 @@ class CollectionWriterAgent:
         print(f"\n✍️ [3/5 CollectionWriterAgent] 正在呼叫 DeepSeek 批量撰写文案...")
         print(f"   📝 探讨主题: 【{theme}】 | 涉及电影数: {len(movies)} 部")
         
-        # 提取纯片单字符串，用于发给 AI
-        movie_names = [m['name'] for m in movies]
-        movie_list_str = "、".join(movie_names)
+        # [修改] 提取带有动态分数的片单字符串，用于发给 AI，增强区分度防幻觉
+        movie_list_parts = []
+        for i, m in enumerate(movies):
+            name = m['name']
+            scores = []
+            if m.get('douban'):
+                scores.append(f"豆瓣: {m['douban']}")
+            if m.get('imdb'):
+                scores.append(f"IMDb: {m['imdb']}")
+            
+            # 动态拼接分数后缀
+            score_suffix = f" ({', '.join(scores)})" if scores else ""
+            movie_list_parts.append(f"{i+1}. {name}{score_suffix}")
+            
+        movie_list_str = "\n".join(movie_list_parts)
         
         # 构建强大的批处理 Prompt
         prompt = f"""
         请为一期主题为“{theme}”的电影专题盘点撰写文案。
-        本次盘点包含以下 {len(movies)} 部电影：{movie_list_str}
+        本次盘点包含以下 {len(movies)} 部电影：
+        {movie_list_str}
 
         {MAGAZINE_AESTHETICS_PROTOCOL}
         
@@ -96,14 +109,22 @@ class CollectionWriterAgent:
             # 我们以原来真实的 movies 列表为主轴，去 data['movies_content'] 里捞数据。
             ai_movie_contents = {item['name']: item for item in data.get('movies_content', [])}
             
+            # [新增] 提取 AI 返回的电影名，并按长度从大到小排序，用于模糊兜底匹配
+            sorted_ai_names = sorted(ai_movie_contents.keys(), key=len, reverse=True)
+            
             for movie in movies:
                 movie_name = movie['name']
-                # 模糊匹配：如果 AI 返回的名字和我们的名字互相包含即可
                 matched_data = None
-                for ai_name, ai_data in ai_movie_contents.items():
-                    if ai_name in movie_name or movie_name in ai_name:
-                        matched_data = ai_data
-                        break
+                
+                # [修改] 1. 优先精确匹配
+                if movie_name in ai_movie_contents:
+                    matched_data = ai_movie_contents[movie_name]
+                else:
+                    # [修改] 2. 长度降序的模糊兜底：如果 AI 返回的名字和我们的名字互相包含即可
+                    for ai_name in sorted_ai_names:
+                        if ai_name in movie_name or movie_name in ai_name:
+                            matched_data = ai_movie_contents[ai_name]
+                            break
                 
                 if matched_data:
                     movie['quote'] = matched_data.get('quote', '').strip()

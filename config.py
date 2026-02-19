@@ -16,7 +16,7 @@ class Strategy:
     class System:
         """[v4.0 新增] 系统运行模式与全局配置"""
         # 运行模式选择: "single" (单片模式) 或 "collection" (合集盘点模式)
-        RUN_MODE: str = "collection" 
+        RUN_MODE: str = "single" 
         
         # 本地分数兜底开关 (仅对合集模式有效)
         USE_LOCAL_SCORES: bool = True
