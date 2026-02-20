@@ -109,13 +109,14 @@ class TopicAgent:
         batch_size = 20  # [修改点] 增加到 20 部，提高命中率
         
         # 1. 获取全量历史 (用于本地严格判定)
-        all_posted_movies = set(self.history.get_all_movies())
+        # [核心重构]：贯彻业务要求，Single模式只看Single模式的历史，允许点播 Collection 发过的
+        all_posted_movies = set([m for m in self.history.get_all_movies() if self.history.has_posted_in_mode(m, "single")])
         
         # 2. 初始化“本轮会话避雷名单” 
         #    (包含最近已发的 20 部 + 本次运行中 AI 猜错的)
         session_avoid_list = self.history.get_recent(20)
         
-        print(f"   📊 历史库已收录 {len(all_posted_movies)} 部电影")
+        print(f"   📊 Single模式专属历史已收录 {len(all_posted_movies)} 部电影")
         
         for i in range(max_retries):
             # 构建避雷字符串 (防止 Prompt 过长，只取最后 50 个)

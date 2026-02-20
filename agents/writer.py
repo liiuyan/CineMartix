@@ -169,10 +169,8 @@ class WriterAgent:
            * **若涉及卡司幕后**：比如“演员突破”（如安妮·海瑟薇/贾玲），请发散她们为了角色剪发/增肥的牺牲；比如“昆汀”，请解释什么是“暴力美学”。
            * **若涉及题材视野**：比如“改变国家的电影”（如《熔炉》），请科普“熔炉法”的具体影响；比如“特殊职业”（如入殓师），请科普该职业如何给予逝者尊严。
            **注意：这一段不要加标题！不要加Emoji分割线！直接写内容！**
-
-        4. **政治正确**：country 字段涉及中国地区时，必须输出"中国香港"、"中国台湾"、"中国澳门"。
         
-        5. **拒绝模版**：ending 字段请自由发挥，写一段简短、口语化、有共鸣的结尾。
+        4. **拒绝模版**：ending 字段请自由发挥，写一段简短、口语化、有共鸣的结尾。
 
         【返回 JSON】：
         1. title: 标题 (<20字, 必带Emoji, **必须包含电影名《{movie_name}》**, **严格遵循上述美学协议**)
@@ -181,9 +179,7 @@ class WriterAgent:
            {{
              "douban_score": "9.3",
              "imdb_score": "8.8",
-             "country": "美国 / 英国",
-             "release_date": "2010",
-             "genre": "科幻 / 悬疑"
+             "release_date": "2010"
            }}
         
         3. honors: "奥斯卡金像奖最佳摄影 / IMDb Top 250 NO.9" (若无顶级荣誉则返回 "")
@@ -240,21 +236,24 @@ class WriterAgent:
 
             # === 5. 组装最终正文 (含进度条逻辑与 Tags 动态长度计算) ===
             
-            # [新增] 提前生成 1000部阅片计划进度条
-            # 策略: 实时扫描 HistoryManager 获取已发布数量 + 1
+            # [重塑] 生成 1000部阅片计划进度条 (合并去重)
             progress_str = ""
             try:
                 history_manager = HistoryManager()
                 past_count = len(history_manager.get_all_movies())
-                current_index = past_count + 1
-                total_target = config.Strategy.Writer.PROJECT_TOTAL_COUNT
                 
-                # 格式化文案 (如: "\n📅 1000部电影推荐计划：51/1000")
+                # [核心逻辑] 如果当前电影已经在全局历史中，总进度不增加
+                if history_manager.is_posted(movie_name):
+                    current_index = past_count
+                else:
+                    current_index = past_count + 1
+                    
+                total_target = config.Strategy.Writer.PROJECT_TOTAL_COUNT
                 progress_str = config.Strategy.Writer.PROGRESS_BAR_TEMPLATE.format(
                     current=current_index, 
                     total=total_target
                 )
-                print(f"   📊 [Project] 进度计算: {current_index}/{total_target}")
+                print(f"   📊 [Project] 进度计算: {current_index}/{total_target} (已去重)")
                 
             except Exception as e:
                 # 健壮性保护：如果读取历史失败，仅打印警告，进度条置空，不影响主流程
@@ -387,15 +386,31 @@ class WriterAgent:
         if line1: header_section += f"{line1}\n"
         if line2: header_section += f"{line2}\n"
         
+        # [任务 1 重构]：剥夺 AI 盲写权，接入真实 API 数据。如果缺失则不显示。
         year_str = meta_data.get('year') or basic.get('release_date', '')
-        country_str = basic.get('country', '')
-        genre_str = basic.get('genre', '')
+        region_str = meta_data.get('region', '')
+        genre_str = meta_data.get('genres', '')
         
-        info_line = country_str
-        if year_str: info_line += f" ({year_str})"
-        info_line += f"  |  {genre_str}"
+        info_parts = []
         
-        header_section += f"{info_line}\n\n"
+        if region_str and region_str not in ['N/A', '未知地区']:
+            info_parts.append(region_str)
+            
+        if year_str:
+            if info_parts:
+                info_parts[-1] += f" ({year_str})"
+            else:
+                info_parts.append(year_str)
+                
+        if genre_str and genre_str not in ['N/A', '未知类型']:
+            info_parts.append(genre_str)
+            
+        info_line = "  |  ".join(info_parts)
+        
+        if info_line:
+            header_section += f"{info_line}\n\n"
+        else:
+            header_section += "\n" # 保持排版间距
         
         # --- 其余部分组装 ---
         

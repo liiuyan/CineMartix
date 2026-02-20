@@ -1,7 +1,116 @@
 {
-  "教父": "2026-02-17",
-  "穿普拉达的女王": "2026-02-18",
-  "降临": "2026-02-18",
-  "看不见的客人": "2026-02-19",
-  "小森林 夏秋篇": "2026-02-20"
+  "教父": {
+    "first_publish_date": "2026-02-17",
+    "published_modes": [
+      "single"
+    ]
+  },
+  "穿普拉达的女王": {
+    "first_publish_date": "2026-02-18",
+    "published_modes": [
+      "single"
+    ]
+  },
+  "降临": {
+    "first_publish_date": "2026-02-18",
+    "published_modes": [
+      "single"
+    ]
+  },
+  "看不见的客人": {
+    "first_publish_date": "2026-02-19",
+    "published_modes": [
+      "single"
+    ]
+  },
+  "小森林 夏秋篇": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "single"
+    ]
+  },
+  "泰坦尼克号": {
+    "first_publish_date": "2026-02-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "盗梦空间": {
+    "first_publish_date": "2026-02-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "猫鼠游戏": {
+    "first_publish_date": "2026-02-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "禁闭岛": {
+    "first_publish_date": "2026-02-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "了不起的盖茨比": {
+    "first_publish_date": "2026-02-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "华尔街之狼": {
+    "first_publish_date": "2026-02-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "星际穿越": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "信条": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "蝙蝠侠：侠影之谜": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "蝙蝠侠：黑暗骑士": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "蝙蝠侠：黑暗骑士崛起": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "奥本海默": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "致命魔术": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "记忆碎片": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  }
 }

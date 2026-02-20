@@ -89,7 +89,8 @@ def run_single_mode():
     # === 收尾: 记录历史 & 清理待办 ===
     if success:
         history = HistoryManager()
-        history.save(movie_name)
+        # [修改] 增加 mode="single" 标签
+        history.save(movie_name, mode="single")
         
         # [Fix] 核心修复：调用 TopicAgent 移除 pending 列表中的对应项
         # [修改] 传递 movie_year (尽管 topic_agent 内部可能只用 fuzzy match，但为了接口一致性)
@@ -190,6 +191,11 @@ def run_collection_mode():
     
     # === Step 6: 完美归档 ===
     if success:
+        # [新增] 将合集中的电影全部写入历史字典，打上 collection 标签
+        history = HistoryManager()
+        for m in writer_data['movies']:
+            history.save(m['name'], mode="collection")
+            
         topic_agent.finish_collection(topic_data['folder_path'])
         print("\n🎉 合集发布流程圆满完成，工作区已清理归档！")
     else:

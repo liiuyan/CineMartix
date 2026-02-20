@@ -61,6 +61,7 @@ class CollectionWriterAgent:
         
         【任务 1：撰写开场引入 (intro)】
         请根据标题“{title}”和主题“{theme}”，写一两句话作为本文的开场白，说明本期介绍的是什么。
+        【特权豁免】：在这个环节，你可以打破旁观者视角，像卷首语一样直接点题，明确写出“本期为您呈现...”等引导语。
         
         【任务 2：撰写主题发散介绍 (divergent_text)】
         请围绕主题“{theme}”展开深度讨论。
@@ -127,8 +128,35 @@ class CollectionWriterAgent:
             return None
             
         # --- 组装正文 (在 Python 侧精准控制) ---
-        # 1. 第一部分：引入 + 灵魂结尾
-        part1 = f"{data.get('intro', '')}\n\n先码住，慢慢看！"
+        
+        # [重塑进度] 提前生成 1000部阅片计划进度条 (合并去重逻辑)
+        progress_str = ""
+        try:
+            from utils import HistoryManager
+            history_manager = HistoryManager()
+            past_count = len(history_manager.get_all_movies())
+            
+            # 计算有多少部是全新的
+            new_movies_count = 0
+            for m in movies:
+                if not history_manager.is_posted(m['name']):
+                    new_movies_count += 1
+                    
+            current_index = past_count + new_movies_count
+            total_target = getattr(config.Strategy.Writer, 'PROJECT_TOTAL_COUNT', 1000)
+            progress_template = getattr(config.Strategy.Writer, 'PROGRESS_BAR_TEMPLATE', "\n📅 1000部电影推荐计划：{current}/{total}")
+            
+            progress_str = progress_template.format(
+                current=current_index, 
+                total=total_target
+            )
+            print(f"   📊 [Project] 进度计算: {past_count} (历史) + {new_movies_count} (新增) = {current_index}/{total_target}")
+        except Exception as e:
+            print(f"   ⚠️ 进度条生成失败 (非致命): {e}")
+            progress_str = ""
+
+        # 1. 第一部分：引入 + 进度条 + 灵魂结尾
+        part1 = f"{data.get('intro', '')}{progress_str}\n\n先码住，慢慢看！"
         
         # 2. 第二部分：本期片单 (使用随机 Emoji 与配置开关)
         list_emoji = random.choice(EMOJI_POOL)

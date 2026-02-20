@@ -18,18 +18,39 @@ class HistoryManager:
             return {}
         try:
             with open(self.filepath, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                data = json.load(f)
+                # [平滑迁移] 兼容旧版的 {"电影名": "日期"} 格式
+                migrated = {}
+                for k, v in data.items():
+                    if isinstance(v, str):
+                        migrated[k] = {
+                            "first_publish_date": v,
+                            "published_modes": ["single"] # 历史老数据默认当做 single 处理
+                        }
+                    else:
+                        migrated[k] = v
+                return migrated
         except:
             return {}
 
-    def save(self, movie_name):
-        """保存电影名和当前日期"""
-        self.history[movie_name] = datetime.datetime.now().strftime("%Y-%m-%d")
+    def save(self, movie_name, mode="single"):
+        """[重塑] 保存电影名、首次发布日期，并记录发布模式(single/collection)"""
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        if movie_name in self.history:
+            # 若已存在，则追加模式标签 (去重机制)
+            if mode not in self.history[movie_name].get("published_modes", []):
+                self.history[movie_name].setdefault("published_modes", []).append(mode)
+        else:
+            # 若不存在，则新建全局记录
+            self.history[movie_name] = {
+                "first_publish_date": now_str,
+                "published_modes": [mode]
+            }
         with open(self.filepath, 'w', encoding='utf-8') as f:
             json.dump(self.history, f, ensure_ascii=False, indent=2)
 
     def get_all_movies(self):
-        """获取历史上发过的所有电影名单"""
+        """获取历史上发过的所有电影名单 (全局合并去重总数直接等于 len(keys))"""
         return list(self.history.keys())
 
     def get_recent(self, limit=10):
@@ -37,18 +58,26 @@ class HistoryManager:
         try:
             if not self.history:
                 return []
-            # self.history 的结构是 {"电影名": "2023-10-27"}
-            # 按日期(value)进行倒序排序
-            sorted_items = sorted(self.history.items(), key=lambda x: x[1], reverse=True)
-            # 只返回电影名列表
+            # self.history 的结构已变，按 first_publish_date 进行倒序排序
+            sorted_items = sorted(
+                self.history.items(), 
+                key=lambda x: x[1].get("first_publish_date", ""), 
+                reverse=True
+            )
             return [item[0] for item in sorted_items[:limit]]
         except Exception as e:
             print(f"⚠️ 获取最近记录失败: {e}")
             return []
 
     def is_posted(self, movie_name):
-        """[新增] 检查是否已发布 (辅助方法)"""
+        """[全局查重] 检查是否在任一模式下发布过"""
         return movie_name in self.history
+        
+    def has_posted_in_mode(self, movie_name, mode):
+        """[精准查重] 检查是否在指定模式下发布过"""
+        if not self.is_posted(movie_name):
+            return False
+        return mode in self.history[movie_name].get("published_modes", [])
 
 class XHSClient:
     """HTTP API 客户端: 封装小红书发布接口调用"""
