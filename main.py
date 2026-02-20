@@ -1,7 +1,7 @@
 # 文件名: little_red/main.py
 import sys
 import config
-from utils import HistoryManager, MetaFetcher
+from utils import HistoryManager, MetaFetcher, clean_tag
 # 导入各职能 Agent
 from agents.topic import TopicAgent
 from agents.writer import WriterAgent
@@ -140,9 +140,25 @@ def run_collection_mode():
     real_title = topic_data['title']
     real_content = writer_data['content']
     
-    # [新增] 动态组装高优精简 Tags (T0主题 + T1流量池 + T2前4部电影)
+    # [修改] 动态组装高优精简 Tags (T0主题 + T1流量池 + T2全局去重顺延前4部电影)
     raw_theme = topic_data['theme'].replace(" ", "")
-    movie_tags = [m['name'].replace(" ", "") for m in writer_data['movies']][:4]
+    
+    # 1. 对所有电影名进行清洗和主IP提取 (泛流量截流)
+    all_cleaned_tags = []
+    for m in writer_data['movies']:
+        cleaned = clean_tag(m['name'])
+        if cleaned:
+            all_cleaned_tags.append(cleaned)
+            
+    # 2. 全局去重 (保持原有高优顺序，防标签坍缩)
+    unique_movie_tags = []
+    for t in all_cleaned_tags:
+        if t not in unique_movie_tags:
+            unique_movie_tags.append(t)
+            
+    # 3. 截取前 4 个不重复的标签顺延补齐
+    movie_tags = unique_movie_tags[:4]
+    
     final_tags = [raw_theme, "电影推荐"] + movie_tags
     
     # [新增] 模拟 Tags 拼接成 "#标签" 后的字符串，以便合并计算总长度

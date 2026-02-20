@@ -198,13 +198,19 @@ class MetaFetcher:
         
         print(f"   ✅ TMDB 锚定成功: ID={imdb_id}, Year={final_year}, 官方中译=《{official_cn_name}》")
 
-        # [新增] 获取票房数据并折算
+        # [修改] 获取详情数据（包含票房、类型、地区）
         revenue_cny = 0
+        genres = "未知类型"
+        region = "未知地区"
         if tmdb_id:
-            revenue_cny = self._get_box_office(tmdb_id)
+            tmdb_details = self._get_tmdb_details(tmdb_id)
+            revenue_cny = tmdb_details.get("revenue_cny", 0)
+            genres = tmdb_details.get("genres", "未知类型")
+            region = tmdb_details.get("region", "未知地区")
             if revenue_cny > 0:
                 # 打印友好的日志
                 print(f"   💰 票房数据获取: 约 {revenue_cny / 100000000:.1f} 亿人民币")
+            print(f"   🌍 类型/地区获取: {genres} | {region}")
 
         local_scores = self._load_local_scores()
         movie_cache = local_scores.get(movie_name, {})
@@ -216,7 +222,9 @@ class MetaFetcher:
             "rotten_tomatoes": "N/A", # 影评人 (OMDB)
             "metacritic": "N/A",
             "douban": "N/A",
-            "revenue_cny": revenue_cny # [新增] 注入票房数据
+            "revenue_cny": revenue_cny, # [新增] 注入票房数据
+            "genres": genres,           # [新增] 注入类型数据
+            "region": region            # [新增] 注入国家地区数据
         }
 
         # === Step 2: 西方数据 (OMDB) ===
@@ -350,27 +358,47 @@ class MetaFetcher:
             print(f"   ⚠️ TMDB Base 获取失败: {e}")
             return None
 
-    def _get_box_office(self, movie_id):
-        """[新增] 获取票房详情并折算为人民币"""
+    def _get_tmdb_details(self, movie_id):
+        """[修改] 获取票房详情并折算为人民币，同时获取类型和国家地区"""
         try:
             url = f"https://api.themoviedb.org/3/movie/{movie_id}"
             params = {"api_key": self.tmdb_key, "language": "zh-CN"}
             resp = requests.get(url, params=params, timeout=10)
             data = resp.json()
             
-            # 获取票房 (USD)
+            # 1. 获取票房 (USD)
             revenue_usd = data.get("revenue", 0)
+            revenue_cny = 0
+            if revenue_usd:
+                # 汇率折算
+                rate = config.Strategy.Writer.USD_TO_CNY_RATE
+                revenue_cny = int(revenue_usd * rate)
+                
+            # 2. 提取类型 (Genres)
+            genres_list = [g.get("name") for g in data.get("genres", [])]
+            genres_str = "/".join(genres_list) if genres_list else "未知类型"
             
-            if not revenue_usd: 
-                return 0
+            # 3. 提取国家/地区 (Production Countries) 并进行绝对合规映射
+            regions_list = []
+            for c in data.get("production_countries", []):
+                name = c.get("name", "")
+                # 强制合规拦截器 (香港，台湾，澳门强制映射为中国香港，中国台湾，中国澳门)
+                if name in ["香港", "Hong Kong"]: name = "中国香港"
+                elif name in ["台湾", "Taiwan"]: name = "中国台湾"
+                elif name in ["澳门", "Macao", "Macau"]: name = "中国澳门"
+                if name:
+                    regions_list.append(name)
+            region_str = "/".join(regions_list) if regions_list else "未知地区"
             
-            # 汇率折算
-            rate = config.Strategy.Writer.USD_TO_CNY_RATE
-            return int(revenue_usd * rate)
+            return {
+                "revenue_cny": revenue_cny,
+                "genres": genres_str,
+                "region": region_str
+            }
             
         except Exception as e:
-            print(f"   ⚠️ 票房获取失败: {e}")
-            return 0
+            print(f"   ⚠️ TMDB 详情获取失败: {e}")
+            return {"revenue_cny": 0, "genres": "未知类型", "region": "未知地区"}
 
     def _get_omdb_scores(self, imdb_id):
         """获取 OMDB 评分数据 (IMDb, Rotten Tomatoes, Metacritic)"""
@@ -429,7 +457,7 @@ class MetaFetcher:
             1. **优先看标题**：很多时候分数直接写在标题里，如 "xx (豆瓣) - 9.0分"。
             2. **警惕个人评价**：如果看到 "我觉得是3分"、"打分3星"，这是个人评论，**忽略它**。我们要的是大众聚合评分（通常在 6.0 - 9.9 之间）。
             3. **寻找关键字**：重点关注 "豆瓣评分"、"评分"、"Score" 后面的数字。
-            4. **多源验证**：如果片段 1 说 8.5，片段 2 也说 8.5，那就是 8.5。如果冲突，取出现次数最多或来源最可信（如直接带 douban.com 域名）的。
+            4. **多源验证**：如果片段 1 说 8.5，片段 2 说 8.5，那就是 8.5。如果冲突，取出现次数最多或来源最可信（如直接带 douban.com 域名）的。
             5. **兜底策略**：如果你翻遍了也找不到明确的聚合评分，请诚实地返回 "N/A"，不要瞎猜。
             【输出要求】：
             仅输出一个数字字符串（例如 "9.2" 或 "N/A"），严禁包含任何其他文字、符号或解释。
@@ -446,3 +474,33 @@ class MetaFetcher:
         except Exception as e:
             print(f"   ⚠️ 豆瓣分数获取失败: {e}")
             return None
+
+# ==========================================
+# [新增] 标签清洗与泛流量截流器 (Tag Cleaner)
+# ==========================================
+def clean_tag(raw_str: str) -> str:
+    """
+    [新增] 标签清洗器 (Tag Cleaner)
+    核心策略：主标题截断 + 尾号抹除 (泛流量截流)
+    解决小红书标点符号断层及续集流量分散问题。
+    """
+    if not raw_str:
+        return ""
+        
+    # 预处理：去掉书名号等绝对不能出现在 tag 里的包裹符号
+    raw_str = raw_str.replace("《", "").replace("》", "")
+        
+    # 1. 符号截断：遇到冒号、破折号、空格、括号等直接截断，取前半截 (主 IP)
+    # 注意包含了全角和半角的标点符号
+    import re
+    parts = re.split(r'[:：\-——(（\s]', raw_str)
+    base_name = parts[0] if parts else raw_str
+    
+    # 2. 尾号抹除：去掉末尾的数字 (如 银翼杀手2049 -> 银翼杀手, 指环王3 -> 指环王)
+    cleaned_name = re.sub(r'\d+$', '', base_name)
+    
+    # 3. 防误杀兜底：如果抹除数字后变成了空字符串 (说明原片名就是纯数字，如 1917 或 2012)，则退回 base_name
+    if not cleaned_name:
+        return base_name
+        
+    return cleaned_name
