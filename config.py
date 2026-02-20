@@ -83,6 +83,15 @@ class Strategy:
         # False: 标题必须是纯文字 (如 "教父：黑帮史诗")，且降级策略中不包含删除 Emoji 步骤。
         ENABLE_TITLE_EMOJI: bool = True
 
+        # =========================================================
+        # [新增] 合集模式：片单拼接内容控制开关
+        # =========================================================
+        SHOW_YEAR: bool = False         # [本次新增] 是否在片单后追加电影年份
+        SHOW_DOUBAN: bool = True       # 是否在片单后追加豆瓣评分
+        SHOW_IMDB: bool = False        # 是否在片单后追加IMDb评分
+        SHOW_GENRE: bool = False       # 是否在片单后追加电影类型
+        SHOW_REGION: bool = False       # 是否在片单后追加国家/地区
+
         # [新增] 1000部阅片计划配置
         # 计划总目标
         PROJECT_TOTAL_COUNT: int = 1000
