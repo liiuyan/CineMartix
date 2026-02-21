@@ -1,10 +1,10 @@
 # 文件名: agents/writer.py
 import json
-import requests
 import random
 import re
 import config
-from utils import LLMBrain, HistoryManager # [修改] 引入 HistoryManager 用于计算进度
+from utils import LLMBrain, calculate_progress
+# [重构 板块5] 删除 import requests — WriterAgent 不再直接调用外部 API
 
 # ==============================================================================
 # 🎨 全局美学协议 (High-End Aesthetics Protocol v2.0)
@@ -53,10 +53,10 @@ class WriterAgent:
     """
     
     def __init__(self):
-        self.tmdb_key = config.TMDB_API_KEY
+        # [重构 板块5] 删除 self.tmdb_key — API 密钥不再由 Writer 持有
         self.brain = LLMBrain()
 
-    def run(self, movie_name: str, meta_data: dict = None) -> dict | None:
+    def run(self, movie_name: str, meta_data: dict = None, reviews: list = None) -> dict | None:
         """
         执行文案生成主流程。
 
@@ -105,9 +105,8 @@ class WriterAgent:
         }
 
         # === 2. 获取外部素材 ===
-        # [Plan B] 提取 TMDB ID，传给评论获取函数 (防止找错电影)
-        target_id = meta_data.get('tmdb_id')
-        real_reviews = self._fetch_tmdb_reviews(movie_name, target_id)
+        # [重构 板块5] 评论数据由上游 MetaFetcher 提供，不再自行调用 API
+        real_reviews = reviews if reviews else []
         
         review_context = ""
         if real_reviews:
@@ -236,29 +235,8 @@ class WriterAgent:
 
             # === 5. 组装最终正文 (含进度条逻辑与 Tags 动态长度计算) ===
             
-            # [重塑] 生成 1000部阅片计划进度条 (合并去重)
-            progress_str = ""
-            try:
-                history_manager = HistoryManager()
-                past_count = len(history_manager.get_all_movies())
-                
-                # [核心逻辑] 如果当前电影已经在全局历史中，总进度不增加
-                if history_manager.is_posted(movie_name):
-                    current_index = past_count
-                else:
-                    current_index = past_count + 1
-                    
-                total_target = config.Strategy.Writer.PROJECT_TOTAL_COUNT
-                progress_str = config.Strategy.Writer.PROGRESS_BAR_TEMPLATE.format(
-                    current=current_index, 
-                    total=total_target
-                )
-                print(f"   📊 [Project] 进度计算: {current_index}/{total_target} (已去重)")
-                
-            except Exception as e:
-                # 健壮性保护：如果读取历史失败，仅打印警告，进度条置空，不影响主流程
-                print(f"   ⚠️ 进度条生成失败 (非致命): {e}")
-                progress_str = ""
+            # [重构 板块2] 调用公共进度条计算器 (逻辑已统一至 utils.calculate_progress)
+            progress_str = calculate_progress(movie_name)
 
             # [新增] 提取并动态组装 Tags 字符串，模拟真实发布时的占用长度
             tags_list = data.get('tags', [])
@@ -619,37 +597,3 @@ class WriterAgent:
         # ==========================================================
         
         return True
-
-    def _fetch_tmdb_reviews(self, movie_name: str, tmdb_id: int = None) -> list:
-        """
-        从 TMDB API 获取用户评论。
-        
-        策略:
-        - [Plan B] 优先使用 tmdb_id 获取。
-        - 优先获取中文评论 (zh)。
-        - 不足 3 条时，使用英文评论补齐 (截取前300字符)。
-        - 仅返回前 3 条，供 WriterAgent 挑选金句。
-        """
-        if not self.tmdb_key: return []
-        try:
-            movie_id = None
-            if tmdb_id:
-                # [Plan B] 直接使用 ID
-                movie_id = tmdb_id
-            else:
-                # [Fallback] 降级搜索
-                search_url = "https://api.themoviedb.org/3/search/movie"
-                resp = requests.get(search_url, params={"api_key": self.tmdb_key, "query": movie_name, "language": "zh-CN"})
-                results = resp.json().get("results", [])
-                if not results: return []
-                movie_id = results[0]["id"]
-            
-            review_url = f"https://api.themoviedb.org/3/movie/{movie_id}/reviews"
-            r_resp = requests.get(review_url, params={"api_key": self.tmdb_key})
-            reviews = r_resp.json().get("results", [])
-            
-            zh_reviews = [r["content"] for r in reviews if r.get("iso_639_1") == "zh"]
-            en_reviews = [r["content"][:300] for r in reviews if r.get("iso_639_1") != "zh"]
-            return (zh_reviews + en_reviews)[:3] 
-        except:
-            return []

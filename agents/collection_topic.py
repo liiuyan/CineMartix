@@ -1,7 +1,7 @@
-# 文件名: agents/collection_topic.py
 import os
-import shutil
+# [重构 板块8] 删除 import shutil — 归档逻辑已于板块4迁入 PendingManager
 import config
+from utils import PendingManager
 
 class CollectionTopicAgent:
     """
@@ -20,6 +20,8 @@ class CollectionTopicAgent:
         # 确保归档区存在
         if not os.path.exists(self.done_dir):
             os.makedirs(self.done_dir, exist_ok=True)
+        
+        self.pending_mgr = PendingManager()  # [重构 板块4] 委托 PendingManager 执行归档
 
     def run(self) -> dict | None:
         """
@@ -144,19 +146,7 @@ class CollectionTopicAgent:
 
     def finish_collection(self, folder_path: str):
         """
-        [集装箱归档] 
-        将包含原图和 output 成品图的整个合集文件夹，整体移动到 _done 目录下。
+        [集装箱归档] [重构 板块4] 委托 PendingManager 执行归档
         被 main.py 在发布成功后调用。
         """
-        try:
-            folder_name = os.path.basename(folder_path)
-            target_path = os.path.join(self.done_dir, folder_name)
-            
-            # 如果目标归档区已经有同名文件夹，先删掉旧的，防止覆盖报错
-            if os.path.exists(target_path):
-                shutil.rmtree(target_path)
-                
-            shutil.move(folder_path, self.done_dir)
-            print(f"\n📦 [归档] 合集集装箱已整体移至: _done/{folder_name}")
-        except Exception as e:
-            print(f"\n⚠️ 归档失败: {e}")
+        self.pending_mgr.archive_folder(folder_path, self.done_dir)

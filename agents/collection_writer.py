@@ -2,7 +2,7 @@
 import json
 import random # [新增] 用于随机选取 emoji
 import config
-from utils import LLMBrain
+from utils import LLMBrain, calculate_progress, clean_tag  # [重构 板块2+7] 引入公共进度条 + 标签清洗器
 
 # ==============================================================================
 # 🖋️ 专栏主笔美学协议 (Magazine Columnist Aesthetics Protocol v1.0)
@@ -129,31 +129,9 @@ class CollectionWriterAgent:
             
         # --- 组装正文 (在 Python 侧精准控制) ---
         
-        # [重塑进度] 提前生成 1000部阅片计划进度条 (合并去重逻辑)
-        progress_str = ""
-        try:
-            from utils import HistoryManager
-            history_manager = HistoryManager()
-            past_count = len(history_manager.get_all_movies())
-            
-            # 计算有多少部是全新的
-            new_movies_count = 0
-            for m in movies:
-                if not history_manager.is_posted(m['name']):
-                    new_movies_count += 1
-                    
-            current_index = past_count + new_movies_count
-            total_target = getattr(config.Strategy.Writer, 'PROJECT_TOTAL_COUNT', 1000)
-            progress_template = getattr(config.Strategy.Writer, 'PROGRESS_BAR_TEMPLATE', "\n📅 1000部电影推荐计划：{current}/{total}")
-            
-            progress_str = progress_template.format(
-                current=current_index, 
-                total=total_target
-            )
-            print(f"   📊 [Project] 进度计算: {past_count} (历史) + {new_movies_count} (新增) = {current_index}/{total_target}")
-        except Exception as e:
-            print(f"   ⚠️ 进度条生成失败 (非致命): {e}")
-            progress_str = ""
+        # [重构 板块2] 调用公共进度条计算器 (逻辑已统一至 utils.calculate_progress)
+        movie_names_for_progress = [m['name'] for m in movies]
+        progress_str = calculate_progress(movie_names_for_progress)
 
         # 1. 第一部分：引入 + 进度条 + 灵魂结尾
         part1 = f"{data.get('intro', '')}{progress_str}\n\n先码住，慢慢看！"
@@ -223,7 +201,76 @@ class CollectionWriterAgent:
         print(f"   ✅ 所有 {len(movies)} 部电影的台词与简介装配完毕！")
         print(f"   ✅ 专栏正文生成完毕 (共 {len(final_content)} 字)。")
         
+        note_data = self._assemble_note(theme, title, final_content, movies)
+        if not note_data:
+            return None
+        
         return {
-            "content": final_content,
+            "note_data": note_data,
             "movies": movies
+        }
+    
+    # ==========================================
+    # [重构 板块7] 从 main.py run_collection_mode() 迁入
+    # ==========================================
+    def _assemble_note(self, theme: str, title: str, content: str, movies: list) -> dict | None:
+        """
+        组装最终发布数据 (标签生成 + Fail-Fast 长度熔断)。
+        
+        [重构 板块7] 原逻辑散落在 main.py 的 run_collection_mode() 中约 45 行，
+        现统一收敛至 CollectionWriterAgent 内部，main.py 只做薄层调度。
+        
+        Args:
+            theme: 探讨主题 (如 "莱昂纳多")
+            title: 笔记标题 (如 "地球球草❗️小李子的6部必看电影")
+            content: 已组装完毕的正文
+            movies: 已装配台词/简介的电影列表
+            
+        Returns:
+            dict | None: 成功返回 {title, content, tags}；长度超限返回 None 触发熔断
+        """
+        # --- 动态组装高优精简 Tags (T0主题 + T1流量池 + T2全局去重顺延前4部电影) ---
+        raw_theme = theme.replace(" ", "")
+        
+        # 1. 对所有电影名进行清洗和主IP提取 (泛流量截流)
+        all_cleaned_tags = []
+        for m in movies:
+            cleaned = clean_tag(m['name'])
+            if cleaned:
+                all_cleaned_tags.append(cleaned)
+                
+        # 2. 全局去重 (保持原有高优顺序，防标签坍缩)
+        unique_movie_tags = []
+        for t in all_cleaned_tags:
+            if t not in unique_movie_tags:
+                unique_movie_tags.append(t)
+                
+        # 3. 截取前 4 个不重复的标签顺延补齐
+        movie_tags = unique_movie_tags[:4]
+        
+        final_tags = [raw_theme, "电影推荐"] + movie_tags
+        
+        # --- 模拟 Tags 拼接成 "#标签" 后的字符串，以便合并计算总长度 ---
+        tags_str = " ".join([f"#{t}" for t in final_tags])
+        total_content_len = len(content) + len(tags_str)
+        
+        # 🚨 触发式熔断：绝不自动截断，超限直接报错终止！
+        if len(title) > 20:
+            print(f"\n   ❌ [致命错误] 标题长度超限 (当前 {len(title)} 字，极限 20 字)。")
+            print(f"      超长标题: {title}")
+            print(f"      -> 请修改文件夹名称中的标题部分后，重新运行程序！")
+            return None
+            
+        if total_content_len > 990:
+            print(f"\n   ❌ [致命错误] 正文及标签总长度超限 (当前 {total_content_len} 字，极限 990 字)。")
+            print(f"      -> AI 发散过长，已中断。请清理 output 文件夹后重新运行程序，让 AI 重写！")
+            return None
+        
+        print(f"   [安全检查] 最终标题长度合规: {len(title)}/20")
+        print(f"   [安全检查] 最终正文及标签总长度合规: {total_content_len}/990")
+        
+        return {
+            "title": title,
+            "content": content,
+            "tags": final_tags
         }

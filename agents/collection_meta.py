@@ -1,8 +1,6 @@
 # 文件名: agents/collection_meta.py
-import os
-import json
 import config
-from utils import MetaFetcher
+from agents.meta import MetaFetcher
 
 class CollectionMetaFetcher:
     """
@@ -15,11 +13,8 @@ class CollectionMetaFetcher:
     3. 柔性容错：绝不因为缺少某部电影的评分而熔断整个流程，缺失分数将自动隐藏并打印警告。
     """
     def __init__(self):
-        self.local_scores_file = config.LOCAL_SCORES_FILE
+        # [重构 板块8] 删除 self.local_scores_file — 文件路径由 MetaFetcher 统一持有
         self.use_local = getattr(config.Strategy.System, 'USE_LOCAL_SCORES', True)
-        
-        # 实例化原版的抓取工具 (复用其底层的 TMDB 和 Serper 搜索逻辑)
-        # 注意：这里我们只用到它的查询能力，我们会自己处理异常，防止它熔断合集流程
         self.api_fetcher = MetaFetcher() 
 
     def run(self, movies: list) -> list:
@@ -108,18 +103,14 @@ class CollectionMetaFetcher:
         return movies
 
     def _load_local_scores(self) -> dict:
-        """安全读取本地 JSON 分数文件"""
+        """
+        [重构 板块8] 委托 MetaFetcher 读取本地缓存，消除重复的文件 I/O。
+        本类仅保留 use_local 开关判断，实际文件读取由 MetaFetcher 统一执行。
+        """
         if not self.use_local:
             return {}
-            
-        if not os.path.exists(self.local_scores_file):
-            print(f"   ℹ️ 本地分数文件不存在 ({self.local_scores_file})，本次将全部使用 API 抓取。")
-            return {}
-            
-        try:
-            with open(self.local_scores_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"   ⚠️ 读取 local_scores.json 失败 (JSON 格式错误?): {e}")
-            print("   ℹ️ 自动降级：本次将全部使用 API 网络抓取。")
-            return {}
+        
+        scores = self.api_fetcher._load_local_scores()
+        if not scores:
+            print(f"   ℹ️ 本地分数文件为空或不存在，本次将全部使用 API 抓取。")
+        return scores

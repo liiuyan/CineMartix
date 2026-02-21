@@ -4,9 +4,8 @@ import json
 import time
 import shutil
 import requests
-import torch
 from PIL import Image
-from transformers import CLIPProcessor, CLIPModel
+from services.clip_engine import ClipEngine  # [重构 板块6] CLIP 引擎抽离为独立服务
 import config # 引用配置中的路径
 
 class VisualAgent:
@@ -26,11 +25,8 @@ class VisualAgent:
         self.search_key = config.SEARCH_API_KEY
         self.downloaded_embeddings = [] # 存储当前运行中所有已采纳图片的指纹 (Embedding)
         
-        # 加载 CLIP 模型 (用于语义去重)
-        print("   ⏳ 正在初始化 CLIP 视觉模型 (用于语义去重)...")
-        self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-        self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-        print("   ✅ CLIP 模型就绪")
+        # [重构 板块6] CLIP 引擎外置为独立服务 (单例模式，避免重复加载)
+        self.clip_engine = ClipEngine()
 
     def run(self, movie_name: str, tmdb_id: int = None) -> list | None:
         """
@@ -380,12 +376,11 @@ class VisualAgent:
         try:
             img = img_obj.convert("RGB")
             
-            # 1. 计算特征
-            curr_emb = self._get_clip_embedding(img)
+            # 1. 计算特征  [重构 板块6] 委托 ClipEngine
+            curr_emb = self.clip_engine.get_embedding(img)
             
-            # 2. 去重检查
-            # [修改] 读取配置的阈值
-            if check_dedup and self._is_semantically_duplicate(curr_emb):
+            # 2. 去重检查  [重构 板块6] 委托 ClipEngine
+            if check_dedup and self.clip_engine.is_duplicate(curr_emb, self.downloaded_embeddings, config.Strategy.Visual.CLIP_THRESHOLD):
                 print(f"   🚫 [CLIP] 语义重复已剔除: {suffix}")
                 return None
             
@@ -419,40 +414,3 @@ class VisualAgent:
                 p = self._download_and_process(item['imageUrl'], query, f"{suffix}_{i}", check_dedup=True)
                 if p: paths.append(p)
         except: pass
-
-    def _get_clip_embedding(self, image):
-        """调用 CLIP 模型提取图片特征向量"""
-        try:
-            inputs = self.clip_processor(images=image, return_tensors="pt")
-            with torch.no_grad():
-                outputs = self.clip_model.get_image_features(**inputs)
-                
-                # === [修复] 恢复了完整的兼容性判断逻辑，确保健壮性 ===
-                if not isinstance(outputs, torch.Tensor):
-                    if hasattr(outputs, 'image_embeds'):
-                        outputs = outputs.image_embeds
-                    elif hasattr(outputs, 'pooler_output'):
-                        outputs = outputs.pooler_output
-                    else:
-                        outputs = outputs[0]
-                # ==================================================
-                        
-            embedding = outputs / outputs.norm(p=2, dim=-1, keepdim=True)
-            return embedding
-        except Exception as e:
-            print(f"   ⚠️ Embedding 计算失败: {e}")
-            return None
-
-    def _is_semantically_duplicate(self, current_embedding) -> bool:
-        """计算余弦相似度，判断是否重复"""
-        if not self.downloaded_embeddings:
-            return False
-        if current_embedding is None:
-            return False
-
-        for saved_emb in self.downloaded_embeddings:
-            similarity = (current_embedding @ saved_emb.T).item()
-            # [修改] 读取配置的阈值
-            if similarity > config.Strategy.Visual.CLIP_THRESHOLD:
-                return True 
-        return False

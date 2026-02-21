@@ -73,5 +73,47 @@
   },
   "银翼杀手": {
     "douban": "8.6"
+  },
+  "成为简·奥斯汀": {
+    "imdb": "7.0",
+    "rotten_tomatoes": "58%",
+    "metacritic": "55",
+    "douban": "8.3"
+  },
+  "实习生": {
+    "imdb": "7.1",
+    "rotten_tomatoes": "59%",
+    "metacritic": "51",
+    "douban": "8.0"
+  },
+  "一天": {
+    "imdb": "7.0",
+    "rotten_tomatoes": "36%",
+    "metacritic": "48",
+    "douban": "7.9"
+  },
+  "公主日记1": {
+    "imdb": "6.4",
+    "rotten_tomatoes": "49%",
+    "metacritic": "52",
+    "douban": "7.6"
+  },
+  "公主日记2": {
+    "imdb": "5.9",
+    "rotten_tomatoes": "25%",
+    "metacritic": "43",
+    "douban": "7.0"
+  },
+  "断背山": {
+    "imdb": "7.7",
+    "rotten_tomatoes": "88%",
+    "metacritic": "87",
+    "douban": "8.8"
+  },
+  "教父": {
+    "imdb": "9.2",
+    "rotten_tomatoes": "97%",
+    "metacritic": "100",
+    "douban": "9.3"
   }
 }

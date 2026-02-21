@@ -1,277 +1,198 @@
-# 🎬 Little Red - 小红书电影号全自动运营系统
+## 📄 文件一：`README.md`
 
-## 📖 项目简介
+```markdown
+# 🎬 CineMatrix — 全自动电影种草内容工厂
 
-本项目是一个基于 **DeepSeek (LLM)** 、 **CLIP (AI视觉模型)** 和 **github开源项目（小红书MCP）** 的全自动化小红书运营工具。它能够自动完成以下全流程：
-
-1.  **智能选题**：基于全品类电影库（影史经典/冷门佳作/商业爽片），结合历史记录自动去重，也可以指定电影。
-2.  **文案创作**：生成“杂志级排版”的电影档案，包含电影档案、荣誉、主创团队、电影简介、独家亮点、经典台词、关于电影（评论）等内容。
-3.  **视觉搜集**：从 TMDB/Google 搜集高清剧照，并使用 **CLIP 模型** 进行语义级去重（防止重复或相似图片），也可以指定图片。
-4.  **自动发布**：通过 MCP 协议自动将图文发布至小红书。
+> 从选题到发布，一键生成小红书电影推荐笔记的 AI 自动化流水线。
 
 ---
 
-## 🏗️ 项目目录结构
+## 🌟 项目简介
 
-```text
-little_red/
-├── main.py                         # [入口] 程序主入口，负责调度所有 Agent
-├── config.py                       # [配置] 路径定义、API Key、算法阈值设置
-├── utils.py                        # [工具] 通用类库 (LLM客户端, 历史记录管理, API请求)
-├── test_clip.py                    # [测试] 用于测试 CLIP 模型相似度阈值的独立脚本
-├── history.json                    # [数据] 已发布电影的历史记录 (自动去重库)
-├── cookies.json                    # [数据] 小红书登录凭证
-├── .env                            # [配置] 环境变量 (API Key 存放处)
-├── xiaohongshu-login-darwin-arm64  # [工具] 小红书扫码登录程序 (Mac ARM64)
-├── xiaohongshu-mcp-darwin-arm64    # [工具] 小红书 MCP 服务程序 (Mac ARM64)
-├── agents/                         # [模块] 核心业务逻辑模块
+CineMatrix 是一套面向小红书平台的 **全自动电影内容生产系统**。它模拟了一个完整的内容创作团队——选题编辑、资料员、文案写手、美术设计师、发布运营——全部由 AI Agent 协同完成。
+
+**核心能力：**
+
+- 🤖 **AI 驱动选题**：基于 LLM（DeepSeek）自动生成电影话题，或从待办队列读取
+- 📊 **多源元数据**：自动抓取 TMDB / 豆瓣评分、类型、年份、地区等信息
+- ✍️ **杂志级文案**：生成克制、专业的电影专栏风格文案（非营销号口吻）
+- 🖼️ **智能图片引擎**：TMDB 官方剧照 + Google 搜索补充 + CLIP 语义去重
+- 📱 **自动发布**：模拟真人操作，自动发布到小红书平台
+- 📁 **合集模式**：支持"多部电影 → 一篇盘点笔记"的批量生产
+
+---
+
+## 🏗️ 系统架构
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    main.py (主控调度器)                │
+│          ┌─ run_single_mode()  单片流水线            │
+│          └─ run_collection_mode()  合集流水线         │
+└────────┬──────────┬──────────┬──────────┬────────────┘
+         │          │          │          │
+    ┌────▼───┐ ┌───▼────┐ ┌──▼───┐ ┌───▼──────┐
+    │ Topic  │ │  Meta  │ │Writer│ │  Visual  │
+    │ Agent  │ │Fetcher │ │Agent │ │  Agent   │
+    └────────┘ └───┬────┘ └──────┘ └────┬─────┘
+                   │                     │
+              ┌────▼────┐          ┌────▼──────┐
+              │  TMDB   │          │   CLIP    │
+              │  豆瓣   │          │  Engine   │
+              └─────────┘          └───────────┘
+                                  (services 层)
+```
+
+**分层设计原则：**
+
+| 层级 | 目录 | 职责 | 规则 |
+|------|------|------|------|
+| 主控层 | `main.py` | 调度各 Agent 的执行顺序 | 仅做"传话筒"，不含业务逻辑 |
+| Agent 层 | `agents/` | 各司其职的业务单元 | 每个 Agent 只做一件事 |
+| 服务层 | `services/` | 重型计算引擎（如 CLIP） | 无状态单例，纯计算 |
+| 工具层 | `utils.py` | 跨 Agent 的公共能力 | 无副作用的纯函数 / 通用管理器 |
+| 配置层 | `config.py` | 所有可调参数 | 全局唯一真相源 |
+
+---
+
+## 📁 项目结构
+
+```
+CineMatrix/
+│
+├── main.py                        # 🎯 主控调度器 (单片/合集双模式)
+├── config.py                      # ⚙️ 全局配置 (API Key、路径、策略参数)
+├── utils.py                       # 🔧 公共工具集 (LLMBrain, HistoryManager, PendingManager 等)
+│
+├── agents/                        # 🤖 Agent 集群
 │   ├── __init__.py
-│   ├── topic.py                    # 选题 Agent
-│   ├── writer.py                   # 文案 Agent
-│   ├── visual.py                   # 视觉 Agent (含 CLIP)
-│   └── execution.py                # 执行 Agent
-├── notes/                          # [文档] 笔记与说明
-│   ├── README.md                   # 本说明文档
-│   └── little_red_book_notes.md    # 项目开发笔记
-└── 资料/                           # [资源] 静态资源存放目录
-    ├── fonts/                      # 字体文件
-    ├── image/                      # 图片下载缓存目录
-    └── manual_materials            # 指定电影的图片存放目录 
-        └──电影名                    # 该电影名文件夹存放对应电影的图片
-```
-
-## 🛠️ 环境依赖与安装
-
-本项目依赖 Python 环境及部分 AI 库。
-
-### 1. Python 依赖
-
-请在终端运行以下命令安装所需库：
-
-```bash
-pip install requests openai pillow python-dotenv torch transformers
-```
-
-* `torch` & `transformers`: 用于运行 CLIP 视觉模型。
-* `openai`: 用于调用 DeepSeek API (兼容 OpenAI 格式)。
-* `pillow`: 用于图片处理。
-* `python-dotenv`: 用于读取 `.env` 配置文件。
-
-### 2. 外部工具权限
-
-如果是首次运行，可能需要给予二进制文件执行权限：
-
-```bash
-chmod +x xiaohongshu-login-darwin-arm64
-chmod +x xiaohongshu-mcp-darwin-arm64
-```
-
-## 📂 文件详细说明
-
-### 1. 根目录核心文件
-
-* **`main.py` (指挥官)**
-    * 程序的唯一入口。
-    * 负责按顺序调度 `Topic` -> `Writer` -> `Visual` -> `Execution` 四大 Agent。
-    * 代码量极少，只包含流程控制逻辑。
-
-* **`config.py` (配置中心)**
-    * 定海神针：定义了 `BASE_DIR`, `LOCAL_IMAGE_DIR` 等绝对路径，确保代码在任何目录下运行都能找到资源。
-    * 算法参数：定义了 `CLIP_THRESHOLD = 0.75` (语义去重阈值)，相似度在0.75以上的两张图片被视为是同一张图片的不同形式（比如加里台词，图片剪切）。
-    * API配置：读取 `.env` 中的密钥。
-
-* **`utils.py` (基础设施)**
-    * `HistoryManager`: 管理 `history.json`，负责读取和写入已发布电影记录，提供去重查询。
-    * `XHSClient`: 封装了与小红书 MCP 服务的 HTTP 通信逻辑。
-    * `LLMBrain`: 封装了 DeepSeek API 的调用逻辑。
-
-* **`test_clip.py` (调试工具)**
-    * 一个独立的脚本。
-    * 用于手动测试两张图片的相似度分数，帮助调整 `config.py` 中的 `CLIP_THRESHOLD`。
-
-* **`xiaohongshu-login-*` / `xiaohongshu-mcp-*`**
-    * `login`: 运行后会在终端显示二维码，扫码后生成 `cookies.json`。
-    * `mcp`: 后台服务进程，负责模拟浏览器环境进行笔记发布。
-
-### 2. Agents 模块 (agents/)
-
-* **`topic.py` (选题 Agent)**
-    * 职责：从影史经典、冷门佳作、商业片等维度推荐电影。
-    * 逻辑：查看用户有没有指定电影 -> 没有 -> 调用 DeepSeek 推荐 -> 读取 `history.json` -> 过滤掉已发过的电影 -> 返回最终选题。  
-    查看用户有没有指定电影 -> 有 -> 使用用户指定的电影 -> 返回选题（指定电影选题逻辑：从上到下顺序）
-
-* **`writer.py` (文案 Agent)**
-    * 职责：生成小红书笔记文案。
-    * 特色：
-        * 采用“文艺杂志”排版风格。
-        * 严格遵守“中国香港/中国台湾”等政治正确规范。
-        * 从自制的emoji库中随机选取符合主题的emoji，增加笔记的趣味性和随机性。
-        * 自动生成电影档案、荣誉、主创团队、电影简介、独家亮点、经典台词、关于电影（评论）等内容。
-        * 独家亮点为该电影的特点及电影内容的延伸，设计了逻辑发散链
-        * 自动为笔记附上tags
-
-* **`visual.py` (视觉 Agent)**
-    * 职责：搜集并筛选高质量剧照。
-    * 核心逻辑：
-        * 源头筛选：优先下载 TMDB 无字幕(null)和中文(zh)图片。
-        * CLIP 去重：下载每张图时，计算其语义向量。如果与已存图片的相似度 > 0.75，则视为重复并删除。
-        * 智能排序：确保优先展示质量最高的无字剧照。
-        * 若用户指定了剧照，择从TMDB上选择一张封面，再使用用户上传的剧照（N张），再从TMDB上获取10-1-N张剧照，每张剧照之间都要CLIP去重
-        * 无论电影是指定的还是ai选出的，都会去查看 **manual_materials** 文件夹里是否有与选出电影名一致的文件夹名
-
-* **`execution.py` (执行 Agent)**
-    * 职责：最后一步，将标题、正文、图片列表打包发送给 MCP 服务进行发布。
-
-### 3. 数据与资源
-
-* **`history.json`**
-    * 格式：`{"电影名": "2023-10-27", ...}`
-    * 作用：永久记忆库，保证几年内都不会重复推荐同一部电影。
-
-* **`资料/image/`**
-    * 作用：临时存放下载的电影海报和剧照。每次运行新任务时，`VisualAgent` 会复用此目录（建议定期手动清理，或保留作为素材库）。
-
-* **`资料/manual_materials/`**  
-    * 作用：存放用户指定的图片
-    * 规则：**manual_materials** 文件夹里存放着以电影名为名字的文件夹，电影名文件夹里存放着对应电影的剧照
-
-## 🚀 如何运行
-
-1.  **配置密钥**：确保根目录下有 `.env` 文件，并填入了 DeepSeek 和 TMDB 的 API Key。
-2.  **启动服务**：在终端启动小红书 MCP 服务 (保持运行)。
-
-    ```bash
-    ./xiaohongshu-mcp-darwin-arm64
-    ```
-
-3.  **运行程序**：打开新终端窗口，运行主程序。
-
-    ```bash
-    python main.py
-    ```
-
-4.  **观察日志**：
-
-    ```text
-    [1/4] 正在选题...
-    [2/4] 正在写文案...
-    [3/4] 正在搜集图片 (CLIP 语义去重中)...
-    [4/4] 正在发布...
-    ```
-  
-
-## 🛠️ 快速开始
-
-### 1. 环境准备
-
-确保已安装 Python 3.10+。安装项目依赖：
-
-```bash
-pip install requests openai pillow python-dotenv torch transformers
-
-```
-
-> ⚠️ **注意**：`torch` 和 `transformers` 用于运行 CLIP 模型，文件较大，请保持网络通畅。
-
-### 2. 配置文件
-
-在项目根目录创建 `.env` 文件，填入你的 API Key：
-
-```ini
-# DeepSeek / OpenAI 兼容接口
-LLM_API_KEY=sk-xxxxxx
-LLM_BASE_URL=[https://api.deepseek.com](https://api.deepseek.com)
-
-# TMDB 电影数据库 (用于获取资料和图片)
-TMDB_API_KEY=xxxxxx
-
-# 搜索引擎 (可选)
-SEARCH_API_KEY=xxxxxx
-
-```
-
-### 3. 登录小红书
-
-首次使用需要扫码登录。运行登录工具（根据你的系统选择对应的版本）：
-
-```bash
-# 赋予执行权限
-chmod +x xiaohongshu-login-darwin-arm64
-# 运行
-./xiaohongshu-login-darwin-arm64
-
-```
-
-扫码成功后，根目录会生成 `cookies.json`。
-
-### 4. 启动 MCP 服务
-
-发布功能依赖后台服务，请**保持此终端窗口开启**：
-
-```bash
-chmod +x xiaohongshu-mcp-darwin-arm64
-./xiaohongshu-mcp-darwin-arm64
-
+│   ├── topic.py                   # 📋 单片选题 Agent
+│   ├── collection_topic.py        # 📁 合集选题 Agent (文件夹扫描 + 严格模式)
+│   ├── meta.py                    # 📊 元数据抓取 Agent (TMDB + 豆瓣)
+│   ├── collection_meta.py         # 📊 合集元数据 Agent (批量分数查询)
+│   ├── writer.py                  # ✍️ 单片文案 Agent
+│   ├── collection_writer.py       # ✍️ 合集文案 Agent (批量台词/简介 + 标签组装)
+│   ├── visual.py                  # 🖼️ 视觉素材 Agent (图片搜索/下载/去重)
+│   └── execution.py               # 📱 发布执行 Agent (小红书自动化)
+│
+├── services/                      # 🧬 独立服务层
+│   ├── __init__.py
+│   └── clip_engine.py             # 🧠 CLIP 视觉语义引擎 (单例模式)
+│
+├── data/                          # 💾 数据文件
+│   ├── pending.txt                # 📝 待办电影队列
+│   ├── local_scores.json          # 📦 本地评分缓存
+│   └── history.json               # 📜 已发布历史记录
+│
+└── collections/                   # 📁 合集素材目录
+    ├── _done/                     # 🗃️ 已归档的合集
+    └── 探讨主题｜笔记标题/          # 📂 待处理的合集文件夹
+        ├── 电影名｜1.jpg
+        ├── 电影名｜2.jpg
+        └── output/                # 🖼️ 生成的成品图 (自动创建)
 ```
 
 ---
 
-## 🖥️ 使用指南
+## 🚀 快速开始
 
-### 启动全自动流程
+### 1. 环境要求
 
-新建一个终端窗口，运行主程序：
+- Python 3.10+
+- CUDA（可选，用于加速 CLIP 推理）
+
+### 2. 安装依赖
 
 ```bash
+pip install -r requirements.txt
+```
+
+**核心依赖：**
+
+| 库 | 用途 |
+|---|---|
+| `openai` | 调用 DeepSeek LLM API |
+| `requests` | TMDB / 豆瓣 / Google API 请求 |
+| `torch` + `transformers` | CLIP 视觉模型推理 |
+| `Pillow` | 图片处理 |
+| `beautifulsoup4` | 豆瓣评分网页解析 |
+
+### 3. 配置
+
+编辑 `config.py`，填入必要的 API 密钥：
+
+```python
+TMDB_API_KEY = "your_tmdb_api_key"
+SEARCH_API_KEY = "your_google_search_api_key"
+DEEPSEEK_API_KEY = "your_deepseek_api_key"
+```
+
+### 4. 运行
+
+```bash
+# 单片模式 (自动选题或从 pending.txt 读取)
 python main.py
 
+# 合集模式 (扫描 collections/ 目录)
+python main.py --collection
 ```
 
-程序将依次执行：`选题` -> `写文案` -> `搜图(去重)` -> `发布` -> `写入历史`。
+---
 
-### 进阶用法
+## 📖 使用指南
 
-#### 1. 🎯 插队模式 (手动指定电影)
+### 单片模式
 
-如果你想发一部特定电影（例如《疯狂动物城2》），不需要改代码。
-只需在根目录创建 `pending.txt`，写入电影名：
+**自动选题：** 直接运行，AI 会根据历史记录自动选择一部电影。
 
-```text
-疯狂动物城2
+**手动指定：** 在 `pending.txt` 中添加电影：
+
+```
+盗梦空间 | 2010
+星际穿越 | 2014
 肖申克的救赎
-
 ```
 
-**逻辑**：程序启动时会优先读取第一行《疯狂动物城2》。发布成功后，会自动将其从文件中删除。
+> 格式：`电影名 | 年份`（年份可选，支持全角/半角分隔符）
 
-#### 2. 🎨 投喂独家素材 (防止撞图)
+### 合集模式
 
-如果你手头有一些独家的电影截图或海报，想优先使用：
+1. 在 `collections/` 下创建文件夹，命名格式：`探讨主题｜笔记标题`
+2. 放入电影剧照，命名格式：`电影名｜序号.jpg`
+3. 运行 `python main.py --collection`
 
-1. 在 `资料/manual_materials/` 下创建**同名文件夹**，例如 `资料/manual_materials/疯狂动物城2/`。
-2. 将图片放进去（支持 jpg/png/webp）。
-3. **效果**：`VisualAgent` 会先加载这些图，如果数量不够 10 张，再去 TMDB 下载补齐。同时，TMDB 下载的图会和你的本地图进行 CLIP 比对，太像的会被自动丢弃。
-
-#### 3. ⚙️ 调整去重严格度
-
-在 `config.py` 中修改 `CLIP_THRESHOLD`：
-
-* `0.75` (默认)：适中。
-* `0.85`：非常宽松（只有几乎一模一样的图才会被删）。
-* `0.65`：非常严格（构图、色调相似的也会被删）。
-
----
-
-## ❓ 常见问题
-
-**Q: 第一次运行下载模型很慢？**
-A: `VisualAgent` 初始化时会从 HuggingFace 下载 CLIP 模型（约 500MB）。如果是国内网络，建议在代码开头设置 HF 镜像（代码中已内置 `hf-mirror.com`）。
-
-**Q: 为什么生成的图片少于 10 张？**
-A: 可能是 CLIP 阈值设得太低，导致大量 TMDB 的图被判定为“重复”并删除了；或者是 TMDB 本身该电影的剧照较少。
+```
+collections/
+└── 诺兰宇宙｜烧脑天花板的5部必看神作/
+    ├── 盗梦空间｜1.jpg
+    ├── 星际穿越｜2.jpg
+    ├── 信条｜3.jpg
+    ├── 记忆碎片｜4.jpg
+    └── 致命魔术｜5.jpg
+```
 
 ---
 
-## 📜 免责声明
+## ⚙️ 策略配置速查
 
-本项目仅供学习交流使用。请遵守小红书平台规范，合理使用自动化工具。
+在 `config.py` 的 `Strategy` 类中可调整各项行为：
+
+```python
+class Strategy:
+    class Visual:
+        CLIP_THRESHOLD = 0.92      # CLIP 语义去重阈值 (越高越宽松)
+        MAX_IMAGES = 9             # 每篇笔记最大图片数
+      
+    class Writer:
+        SHOW_DOUBAN = True         # 正文中显示豆瓣评分
+        SHOW_IMDB = True           # 正文中显示 IMDb 评分
+        SHOW_YEAR = True           # 正文中显示年份
+        SHOW_GENRE = True          # 正文中显示类型
+        SHOW_REGION = False        # 正文中显示地区
+      
+    class System:
+        USE_LOCAL_SCORES = True    # 启用本地评分缓存
+```
+
+---
+

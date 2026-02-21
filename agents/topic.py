@@ -3,14 +3,14 @@ import os
 import time
 import random
 import config
-from utils import LLMBrain, HistoryManager
+from utils import LLMBrain, HistoryManager, PendingManager  # [重构 板块4] 新增 PendingManager
 
 class TopicAgent:
     """选题 Agent (支持 pending.txt 主动点播 + AI 自主漫游选题)"""
     def __init__(self):
         self.brain = LLMBrain()
         self.history = HistoryManager()
-        self.pending_file = os.path.join(config.BASE_DIR, "pending.txt")
+        self.pending_mgr = PendingManager()  # [重构 板块4] 委托 PendingManager 管理待办队列
 
     def run(self):
         """
@@ -33,68 +33,12 @@ class TopicAgent:
         return self._ai_auto_selection()
 
     def _check_pending_list(self):
-        """
-        检查 pending.txt
-        [升级] 支持格式: "电影名 | 年份"
-        """
-        if not os.path.exists(self.pending_file):
-            return None
-
-        try:
-            with open(self.pending_file, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-            
-            valid_lines = [line for line in lines if line.strip()]
-            if not valid_lines:
-                return None 
-
-            # 解析第一行
-            raw_line = valid_lines[0].strip()
-            if "|" in raw_line:
-                parts = raw_line.split("|")
-                name = parts[0].strip()
-                year = parts[1].strip()
-                return name, year
-            elif "｜" in raw_line: # [新增] 兼容全角符号
-                parts = raw_line.split("｜")
-                name = parts[0].strip()
-                year = parts[1].strip()
-                return name, year
-            else:
-                return raw_line, None
-
-        except Exception as e:
-            print(f"⚠️ 读取 pending.txt 出错: {e}")
-            return None
+        """[重构 板块4] 委托 PendingManager 读取待办队列"""
+        return self.pending_mgr.read_next()
 
     def finish_pending(self, movie_name, year=None):
-        """
-        [任务完成回调] 从 pending.txt 中移除该电影
-        [升级] 匹配逻辑: 只要行首包含 movie_name 即可匹配，兼容有无年份的情况。
-        """
-        if not os.path.exists(self.pending_file):
-            return
-
-        try:
-            with open(self.pending_file, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-            
-            valid_lines = [line for line in lines if line.strip()]
-            
-            # 如果文件第一行包含当前完成的电影名，则删除它
-            # (注意：因为 pending.txt 是队列，理应完成的就是第一行)
-            if valid_lines:
-                first_line = valid_lines[0].strip()
-                # 模糊匹配：如果第一行开头是这个电影名，就删掉
-                # 例如 pending 是 "头号玩家 | 2018"，处理完的 name 是 "头号玩家"
-                if first_line.startswith(movie_name):
-                    print(f"🗑️ [Pending] 从待办列表中移除已发布的: 《{first_line}》")
-                    remaining_lines = valid_lines[1:]
-                    with open(self.pending_file, "w", encoding="utf-8") as f:
-                        f.writelines(remaining_lines)
-            
-        except Exception as e:
-            print(f"⚠️ 更新 pending.txt 失败: {e}")
+        """[重构 板块4] 委托 PendingManager 移除已完成任务"""
+        self.pending_mgr.remove(movie_name)
 
     def _ai_auto_selection(self):
         """

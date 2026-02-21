@@ -1,7 +1,8 @@
 # 文件名: little_red/main.py
 import sys
 import config
-from utils import HistoryManager, MetaFetcher, clean_tag
+from utils import HistoryManager  # [重构 板块7] clean_tag 已下沉至 CollectionWriterAgent
+from agents.meta import MetaFetcher  # [重构 板块1] 从 agents/meta.py 导入
 # 导入各职能 Agent
 from agents.topic import TopicAgent
 from agents.writer import WriterAgent
@@ -48,10 +49,14 @@ def run_single_mode():
         # 若数据猎取阶段熔断 (如无评分)，则终止流程，防止生成垃圾内容
         print(f"❌ 数据猎取失败，终止流程: {e}")
         return
+    
+    # === Step 2.5: 获取评论素材 (Reviews) ===  [重构 板块5]
+    # 评论获取能力已从 WriterAgent 迁入 MetaFetcher，由主控统一调度
+    reviews = fetcher.fetch_reviews(movie_name, tmdb_id=meta_data.get('tmdb_id'))
 
     # === Step 3: 文案创作 (Writer) ===
     writer_agent = WriterAgent()
-    note_data = writer_agent.run(movie_name, meta_data)
+    note_data = writer_agent.run(movie_name, meta_data, reviews=reviews)  # [重构 板块5] 传入评论数据
     
     if not note_data:
         print("❌ 文案生成失败 (可能是字数压缩熔断)，终止流程。")
@@ -131,63 +136,10 @@ def run_collection_mode():
     if not final_images:
         return
         
-    # === Step 5: 组装与发布 (Fail-Fast 铁血查杀) ===
+    # === Step 5: 执行发布 ===
+    # [重构 板块7] 标签生成/长度验证已下沉至 CollectionWriterAgent._assemble_note()
     execution_agent = ExecutionAgent()
-    
-    # [逻辑对齐] CollectionTopicAgent 已经通过 | 完美切分了数据：
-    # topic_data['theme'] -> "莱昂纳多"
-    # topic_data['title'] -> "地球球草❗️小李子的6部必看电影"
-    
-    real_title = topic_data['title']
-    real_content = writer_data['content']
-    
-    # [修改] 动态组装高优精简 Tags (T0主题 + T1流量池 + T2全局去重顺延前4部电影)
-    raw_theme = topic_data['theme'].replace(" ", "")
-    
-    # 1. 对所有电影名进行清洗和主IP提取 (泛流量截流)
-    all_cleaned_tags = []
-    for m in writer_data['movies']:
-        cleaned = clean_tag(m['name'])
-        if cleaned:
-            all_cleaned_tags.append(cleaned)
-            
-    # 2. 全局去重 (保持原有高优顺序，防标签坍缩)
-    unique_movie_tags = []
-    for t in all_cleaned_tags:
-        if t not in unique_movie_tags:
-            unique_movie_tags.append(t)
-            
-    # 3. 截取前 4 个不重复的标签顺延补齐
-    movie_tags = unique_movie_tags[:4]
-    
-    final_tags = [raw_theme, "电影推荐"] + movie_tags
-    
-    # [新增] 模拟 Tags 拼接成 "#标签" 后的字符串，以便合并计算总长度
-    tags_str = " ".join([f"#{t}" for t in final_tags])
-    total_content_len = len(real_content) + len(tags_str)
-    
-    # 🚨 触发式熔断：绝不自动截断，超限直接报错终止！
-    if len(real_title) > 20:
-        print(f"\n   ❌ [致命错误] 标题长度超限 (当前 {len(real_title)} 字，极限 20 字)。")
-        print(f"      超长标题: {real_title}")
-        print(f"      -> 请修改文件夹名称中的标题部分后，重新运行程序！")
-        return
-        
-    if total_content_len > 990:
-        print(f"\n   ❌ [致命错误] 正文及标签总长度超限 (当前 {total_content_len} 字，极限 990 字)。")
-        print(f"      -> AI 发散过长，已中断。请清理 output 文件夹后重新运行程序，让 AI 重写！")
-        return
-
-    note_data = {
-        "title": real_title,
-        "content": real_content,
-        "tags": final_tags  # 完美转换：加入核心主题与前4部电影
-    }
-    
-    print(f"   [安全检查] 最终标题长度合规: {len(real_title)}/20")
-    print(f"   [安全检查] 最终正文及标签总长度合规: {total_content_len}/990")
-    
-    success = execution_agent.run(note_data, final_images)
+    success = execution_agent.run(writer_data['note_data'], final_images)
     
     # === Step 6: 完美归档 ===
     if success:
