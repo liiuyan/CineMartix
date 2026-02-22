@@ -115,5 +115,59 @@
     "rotten_tomatoes": "97%",
     "metacritic": "100",
     "douban": "9.3"
+  },
+  "正发生": {
+    "imdb": "7.4",
+    "rotten_tomatoes": "99%",
+    "metacritic": "86",
+    "douban": "8.2"
+  },
+  "巴黎夜旅人": {
+    "imdb": "6.9",
+    "rotten_tomatoes": "90%",
+    "metacritic": "69",
+    "douban": "8.1"
+  },
+  "法比安": {
+    "imdb": "7.1",
+    "rotten_tomatoes": "93%",
+    "metacritic": "68",
+    "douban": "8.3"
+  },
+  "晒后假日": {
+    "imdb": "7.6",
+    "rotten_tomatoes": "96%",
+    "metacritic": "95",
+    "douban": "8.2"
+  },
+  "唐顿庄园2": {
+    "imdb": "7.4",
+    "rotten_tomatoes": "87%",
+    "metacritic": "63",
+    "douban": "8.2"
+  },
+  "天鹅挽歌": {
+    "imdb": "6.8",
+    "rotten_tomatoes": "80%",
+    "metacritic": "66",
+    "douban": "8.1"
+  },
+  "十三条命": {
+    "imdb": "7.8",
+    "rotten_tomatoes": "85%",
+    "metacritic": "66",
+    "douban": "8.5"
+  },
+  "万湖会议": {
+    "imdb": "7.2",
+    "rotten_tomatoes": "90%",
+    "metacritic": "N/A",
+    "douban": "8.1"
+  },
+  "close": {
+    "imdb": "7.8",
+    "rotten_tomatoes": "91%",
+    "metacritic": "81",
+    "douban": "8.1"
   }
 }

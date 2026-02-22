@@ -154,5 +154,59 @@
     "published_modes": [
       "single"
     ]
+  },
+  "正发生": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "巴黎夜旅人": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "法比安": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "晒后假日": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "唐顿庄园2": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "天鹅挽歌": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "十三条命": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "close": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "万湖会议": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
   }
 }

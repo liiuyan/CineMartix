@@ -51,42 +51,10 @@ class CollectionWriterAgent:
             
         movie_list_str = "\n".join(movie_list_parts)
         
-        # 构建强大的批处理 Prompt
-        prompt = f"""
-        请为一期主题为“{theme}”，标题为“{title}”的电影专题盘点撰写文案。
-        本次盘点包含以下 {len(movies)} 部电影：
-        {movie_list_str}
-
-        {MAGAZINE_AESTHETICS_PROTOCOL}
-        
-        【任务 1：撰写开场引入 (intro)】
-        请根据标题“{title}”和主题“{theme}”，写一两句话作为本文的开场白，说明本期介绍的是什么。
-        【特权豁免】：在这个环节，你可以打破旁观者视角，像卷首语一样直接点题，明确写出“本期为您呈现...”等引导语。
-        
-        【任务 2：撰写主题发散介绍 (divergent_text)】
-        请围绕主题“{theme}”展开深度讨论。
-          - 重点写“感官体验”、“价值观共鸣”与“现实投射”。
-          - 【⚠️极其重要】：这部分的字数（算上标点符号和Emoji）绝对不能超过 380 字！必须精炼高级！
-          
-        【任务 3：拆解每部电影 (movies_content)】
-        请为上述每一部电影提供：
-        1. 一句最经典的台词（必须是中文翻译版本，严禁夹杂英文，最好是具有普世哲学意味的）。
-        2. 一句话简介 (极度精炼的剧情梗概或核心主旨，字数尽量控制在 25 字以内，不要带片名)。
-
-        【输出格式要求】：
-        必须严格输出以下 JSON 格式，不要包含任何额外的解释或代码块标记：
-        {{
-            "intro": "开场的引入语...",
-            "divergent_text": "深度探讨的发散文案...",
-            "movies_content": [
-                {{
-                    "name": "电影名",
-                    "quote": "经典台词...",
-                    "summary": "一句话简介..."
-                }}
-            ]
-        }}
-        """
+        # [原因: 模式化 Prompt] 不同正文模式使用独立提示词，保证输出结构与语气贴合模式目标
+        body_mode = self._get_collection_body_mode()
+        print(f"   🧩 [Collection] 正文模式: {body_mode}")
+        prompt = self._build_prompt_by_mode(theme, title, movies, movie_list_str, body_mode)
         
         system_prompt = "你是一个冷静专业的电影杂志主笔。你只输出合法的JSON对象。"
         
@@ -114,9 +82,18 @@ class CollectionWriterAgent:
                     print(f"   ⚠️ [熔断] 发散介绍字数超限 ({len(divergent_text)} 字，限制 400 字)，打回重写！")
                     data = None # 重置 data 以触发下一轮
                     continue
-                else:
-                    print(f"   ✅ 发散介绍字数合规 ({len(divergent_text)}/400 字)")
-                    break # 成功则跳出循环
+
+                # [原因: mode_three 专属约束] mode_three 的 intro 仅做上限校验，避免唯一正文段过长
+                intro_text = str(data.get('intro', '')).strip()
+                if body_mode == "mode_three" and len(intro_text) > 200:
+                    print(f"   ⚠️ [熔断] mode_three intro 超限 ({len(intro_text)} 字，限制 200 字)，打回重写！")
+                    data = None
+                    continue
+
+                print(f"   ✅ 发散介绍字数合规 ({len(divergent_text)}/400 字)")
+                if body_mode == "mode_three":
+                    print(f"   ✅ mode_three intro 长度合规 ({len(intro_text)}/200 字)")
+                break # 成功则跳出循环
                     
             except Exception as e:
                 print(f"   ❌ 文案 JSON 解析失败: {e}")
@@ -128,17 +105,13 @@ class CollectionWriterAgent:
             return None
             
         # --- 组装正文 (在 Python 侧精准控制) ---
-        
         # [重构 板块2] 调用公共进度条计算器 (逻辑已统一至 utils.calculate_progress)
         movie_names_for_progress = [m['name'] for m in movies]
         progress_str = calculate_progress(movie_names_for_progress)
 
-        # 1. 第一部分：引入 + 进度条 + 灵魂结尾
-        part1 = f"{data.get('intro', '')}{progress_str}\n\n先码住，慢慢看！"
-        
-        # 2. 第二部分：本期片单 (使用随机 Emoji 与配置开关)
+        # 1. 第一部分：本期片单 (保持原有随机 Emoji 与配置开关)
         list_emoji = random.choice(EMOJI_POOL)
-        part2_lines = [f"{list_emoji}本期片单："]
+        part_list_lines = [f"{list_emoji}本期片单："]
         
         for i, m in enumerate(movies):
             line = f"{i+1}️⃣{m['name']}"
@@ -158,14 +131,9 @@ class CollectionWriterAgent:
                 
             if extras:
                 line += f" ({' | '.join(extras)})"
-            part2_lines.append(line)
+            part_list_lines.append(line)
             
-        part2 = "\n".join(part2_lines)
-        
-        # 3. 第三部分：发散介绍
-        part3 = data.get('divergent_text', '')
-        
-        final_content = f"{part1}\n\n{part2}\n\n{part3}"
+        part_list = "\n".join(part_list_lines)
         
         # --- 核心机制：安全对齐装配 ---
         # 为了防止 AI 的幻觉（漏写某部电影，或改了电影名字），
@@ -191,12 +159,49 @@ class CollectionWriterAgent:
             
             if matched_data:
                 movie['quote'] = matched_data.get('quote', '').strip()
-                movie['summary'] = matched_data.get('summary', '').strip()
+                # [原因: 字段语义化] 统一优先使用 short_summary/long_summary，兼容旧字段 summary/body_summary
+                movie['summary'] = matched_data.get('short_summary', matched_data.get('summary', '')).strip()
+                # [原因: mode_two 正文字段兼容] long_summary -> body_summary(内部沿用老字段名供下游复用)
+                movie['body_summary'] = matched_data.get('long_summary', matched_data.get('body_summary', '')).strip()
             else:
                 # [防呆设计] 如果 AI 漏掉了这部电影，填充默认值防止下游图片生成器崩溃
                 print(f"      ⚠️ AI 遗漏了电影《{movie_name}》的台词/简介，已自动填充默认值。")
                 movie['quote'] = "“光影留存记忆。”"
                 movie['summary'] = "一部值得细细品味的佳作。"
+                movie['body_summary'] = ""
+
+        # 2. 第二部分：根据 mode 组装正文顺序 (仅 collection 模式生效)
+        intro_text = data.get('intro', '').strip()
+        divergent_text = data.get('divergent_text', '').strip()
+        progress_text = progress_str.strip()
+
+        sections = [part_list]
+
+        if intro_text:
+            sections.append(intro_text)
+
+        if body_mode == "mode_one":
+            if divergent_text:
+                sections.append(divergent_text)
+        elif body_mode == "mode_two":
+            summaries_block = self._build_mode_two_summaries(theme, title, movies)
+            if summaries_block is None:
+                return None
+            if summaries_block:
+                sections.append(summaries_block)
+        elif body_mode == "mode_three":
+            pass
+
+        show_cta = getattr(config.Strategy.Writer, 'COLLECTION_SHOW_CTA', True)
+        cta_text = str(getattr(config.Strategy.Writer, 'COLLECTION_CTA_TEXT', '')).strip()
+        if show_cta and cta_text:
+            sections.append(cta_text)
+
+        if progress_text:
+            sections.append(progress_text)
+
+        # [排版] 只拼接非空段落，避免关闭 CTA 时出现空行
+        final_content = "\n\n".join([s for s in sections if s])
                 
         print(f"   ✅ 所有 {len(movies)} 部电影的台词与简介装配完毕！")
         print(f"   ✅ 专栏正文生成完毕 (共 {len(final_content)} 字)。")
@@ -209,6 +214,221 @@ class CollectionWriterAgent:
             "note_data": note_data,
             "movies": movies
         }
+
+    def _build_prompt_by_mode(self, theme: str, title: str, movies: list, movie_list_str: str, body_mode: str) -> str:
+        """
+        [原因: 模式化 Prompt] 根据 collection 正文模式构建不同的 AI 提示词。
+        """
+        movie_count = len(movies)
+        min_len = int(getattr(config.Strategy.Writer, 'COLLECTION_SUMMARY_MIN_LEN', 55))
+        max_len = int(getattr(config.Strategy.Writer, 'COLLECTION_SUMMARY_MAX_LEN', 80))
+
+        common_header = f"""
+        请为一期主题为“{theme}”，标题为“{title}”的电影专题盘点撰写文案。
+        本次盘点包含以下 {movie_count} 部电影：
+        {movie_list_str}
+
+        {MAGAZINE_AESTHETICS_PROTOCOL}
+        """
+
+        if body_mode == "mode_two":
+            return f"""
+        {common_header}
+
+        【任务 1：撰写过渡语 (intro)】
+        注意：这段文字将展示在本期【{movie_count}部电影片单】的正下方，下文紧接着会逐一拆解这些电影。
+        请写一两句话对上方的片单进行总结，并顺畅地引出下文。不要使用“今天为你推荐”等开头式的语调，请直接承接片单。
+
+        【任务 2：主题发散 (divergent_text)】
+        本模式不需要发散介绍，请直接返回空字符串 ""。
+
+        【任务 3：拆解每部电影素材 (movies_content) 🚨核心任务】
+        请为每部电影提供以下 3 个字段：
+        1. 经典台词 (quote)：一句最经典的台词（必须是高质量中文翻译，严禁夹杂英文）。
+        2. 海报简介 (short_summary)：极度精炼的主旨，必须控制在 25 字以内（专用于海报排版）。
+        3. 正文长评 (long_summary)：客观犀利的剧情解析或影史价值陈述。
+        【⚠️字数极度严格】：long_summary 的字数必须严格控制在 {min_len}-{max_len} 字之间！如果不达标或超标，系统将判定失败！
+
+        【输出格式要求】：
+        必须严格输出以下 JSON 格式，不要包含任何额外解释或代码块标记：
+        {{
+            "intro": "过渡语...",
+            "divergent_text": "",
+            "movies_content": [
+                {{
+                    "name": "电影名",
+                    "quote": "经典台词...",
+                    "short_summary": "25字以内的海报简介...",
+                    "long_summary": "{min_len}-{max_len}字的正文长评..."
+                }}
+            ]
+        }}
+        """
+
+        if body_mode == "mode_three":
+            return f"""
+        {common_header}
+
+        【任务 1：撰写核心总结陈词 (intro)】
+        注意：这段文字将展示在本期【{movie_count}部电影片单】的正下方。这是本篇笔记唯一的正文段落，后面没有任何解读内容了。
+        请写一段话（约 50-200 字），对上方的片单进行高度概括与情感升华，一语道破这些电影的共性与魅力。
+        语气要求：像电影节闭幕式上的致辞，掷地有声，余音绕梁。直接给出结论，绝对不要出现“接下来”、“下面”等引出式的词汇。
+
+        【任务 2：主题发散 (divergent_text)】
+        本模式不需要发散介绍，请直接返回空字符串 ""。
+
+        【任务 3：拆解每部电影素材 (movies_content)】
+        请为每部电影提供：
+        1. 一句最经典的台词（必须是高质量中文翻译，严禁夹杂英文）。
+        2. 一句话简介 short_summary（极度精炼的主旨，控制在 25 字以内，用于海报排版）。
+
+        【输出格式要求】：
+        必须严格输出以下 JSON 格式，不要包含任何额外解释或代码块标记：
+        {{
+            "intro": "核心总结陈词...",
+            "divergent_text": "",
+            "movies_content": [
+                {{
+                    "name": "电影名",
+                    "quote": "经典台词...",
+                    "short_summary": "25字以内的海报简介..."
+                }}
+            ]
+        }}
+        """
+
+        # [原因: mode_one 独立提示词] 默认或显式 mode_one 走过渡语 + 发散的专栏模式
+        return f"""
+        {common_header}
+
+        【任务 1：撰写过渡语 (intro)】
+        注意：这段文字将展示在本期【{movie_count}部电影片单】的正下方，下文紧接着会有更详细的深度探讨。
+        请写一两句话对上方的片单进行总结，并顺畅地引出下文。不要使用“今天为你推荐”、“接下来”等开头式的语调，请直接承接片单。
+
+        【任务 2：撰写主题发散介绍 (divergent_text)】
+        请围绕主题“{theme}”，撰写一段极具深度的专栏评述。
+        写作要求：
+        1. 切入点：不要空洞说教，必须从本期这 {movie_count} 部电影的共性中提取独特洞察。
+        2. 行文逻辑：先用一句犀利的论断重新定义该主题，然后具体描述这类电影带给观众的真实心理/生理反应，最后落脚于“为什么我们今天依然需要这类电影”。
+        3. 语感红线：句子短促有力，多用名词和动词。严禁出现“不仅仅是...更是”、“视觉盛宴”、“淋漓尽致”等烂俗套话。
+        4. 字数要求：严格控制在 250-350 字之间，绝不能超过 380 字！
+
+        【任务 3：拆解每部电影素材 (movies_content)】
+        请为每部电影提供：
+        1. 一句最经典的台词（必须是高质量中文翻译，严禁夹杂英文）。
+        2. 一句话简介 short_summary（极度精炼的主旨，控制在 25 字以内，用于海报排版）。
+
+        【输出格式要求】：
+        必须严格输出以下 JSON 格式，不要包含任何额外解释或代码块标记：
+        {{
+            "intro": "过渡语...",
+            "divergent_text": "主题发散介绍...",
+            "movies_content": [
+                {{
+                    "name": "电影名",
+                    "quote": "经典台词...",
+                    "short_summary": "25字以内的海报简介..."
+                }}
+            ]
+        }}
+        """
+
+    def _get_collection_body_mode(self) -> str:
+        """
+        读取并校验合集正文模式。
+        若配置值非法，回退到 mode_one，避免主流程崩溃。
+        """
+        raw_mode = str(getattr(config.Strategy.Writer, 'COLLECTION_BODY_MODE', 'mode_one')).strip()
+        valid_modes = {"mode_one", "mode_two", "mode_three"}
+        if raw_mode in valid_modes:
+            return raw_mode
+        print(f"   ⚠️ [Collection] 未知正文模式 '{raw_mode}'，已回退为 mode_one。")
+        return "mode_one"
+
+    def _build_mode_two_summaries(self, theme: str, title: str, movies: list) -> str | None:
+        """
+        组装 mode_two 的正文简介块:
+        《电影名》：简介
+
+        规则:
+        - 每条简介长度必须在 [min_len, max_len]。
+        - 仅重写不合格条目，且单条重写次数受配置控制。
+        """
+        min_len = int(getattr(config.Strategy.Writer, 'COLLECTION_SUMMARY_MIN_LEN', 55))
+        max_len = int(getattr(config.Strategy.Writer, 'COLLECTION_SUMMARY_MAX_LEN', 80))
+        max_retries = int(getattr(config.Strategy.Writer, 'COLLECTION_SUMMARY_REWRITE_RETRIES', 3))
+        max_retries = max(1, max_retries)
+
+        lines = []
+        for movie in movies:
+            movie_name = movie['name']
+            current_summary = str(movie.get('body_summary', '')).strip()
+
+            if not self._is_summary_length_valid(current_summary, min_len, max_len):
+                rewritten = self._rewrite_single_mode_two_summary(
+                    movie_name=movie_name,
+                    theme=theme,
+                    title=title,
+                    draft=current_summary,
+                    min_len=min_len,
+                    max_len=max_len,
+                    max_retries=max_retries
+                )
+                if rewritten is None:
+                    print(f"   ❌ [mode_two] 《{movie_name}》简介在 {max_retries} 次重写后仍不达标，流程中止。")
+                    return None
+                current_summary = rewritten
+
+            movie['body_summary'] = current_summary
+            lines.append(f"《{movie_name}》：{current_summary}")
+
+        return "\n".join(lines)
+
+    def _rewrite_single_mode_two_summary(
+        self,
+        movie_name: str,
+        theme: str,
+        title: str,
+        draft: str,
+        min_len: int,
+        max_len: int,
+        max_retries: int
+    ) -> str | None:
+        """对单条不合格简介进行有限次重写，返回首个达标结果。"""
+        for attempt in range(max_retries):
+            if attempt == 0:
+                print(f"      🔄 [mode_two] 《{movie_name}》简介不合格，开始定向重写...")
+            else:
+                print(f"      🔄 [mode_two] 《{movie_name}》继续重写 ({attempt + 1}/{max_retries})...")
+
+            prompt = f"""
+            请为电影《{movie_name}》写一段用于合集正文的中文简介。
+            背景主题：{theme}
+            合集标题：{title}
+            参考草稿：{draft if draft else "（无）"}
+
+            规则：
+            1. 严格输出 {min_len}-{max_len} 字（按字符计数，含标点）。
+            2. 只写简介正文，不要带片名，不要加引号，不要换行，不要序号。
+            3. 文风克制、专业，避免营销腔。
+            """
+            resp = self.brain.think(prompt, system_prompt="你是电影杂志编辑，只返回简介正文。")
+            if not resp:
+                continue
+
+            candidate = resp.strip().replace("\n", "")
+            candidate = candidate.strip('"').strip("“").strip("”").strip()
+            if self._is_summary_length_valid(candidate, min_len, max_len):
+                print(f"      ✅ [mode_two] 《{movie_name}》简介重写达标 ({len(candidate)} 字)。")
+                return candidate
+
+        return None
+
+    def _is_summary_length_valid(self, text: str, min_len: int, max_len: int) -> bool:
+        """简介长度检测器。"""
+        if not text:
+            return False
+        return min_len <= len(text) <= max_len
     
     # ==========================================
     # [重构 板块7] 从 main.py run_collection_mode() 迁入

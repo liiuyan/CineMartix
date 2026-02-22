@@ -16,7 +16,7 @@ class Strategy:
     class System:
         """[v4.0 新增] 系统运行模式与全局配置"""
         # 运行模式选择: "single" (单片模式) 或 "collection" (合集盘点模式)
-        RUN_MODE: str = "single" 
+        RUN_MODE: str = "collection" 
         
         # 本地分数兜底开关 (仅对合集模式有效)
         USE_LOCAL_SCORES: bool = True
@@ -91,6 +91,21 @@ class Strategy:
         SHOW_IMDB: bool = False        # 是否在片单后追加IMDb评分
         SHOW_GENRE: bool = False       # 是否在片单后追加电影类型
         SHOW_REGION: bool = False       # 是否在片单后追加国家/地区
+
+        # [新增] 合集模式正文拼接模式 (仅 collection 模式使用)
+        # mode_one: 片单 + 开场白 + 发散 + 引导语 + 进度
+        # mode_two: 片单 + 开场白 + 简介列表 + 引导语 + 进度
+        # mode_three: 片单 + 开场白 + 引导语 + 进度
+        COLLECTION_BODY_MODE: str = "mode_three"
+
+        # [新增] 合集模式正文引导语控制 (仅 collection 模式使用)
+        COLLECTION_SHOW_CTA: bool = True
+        COLLECTION_CTA_TEXT: str = "欢迎在评论区补充你喜欢的电影，后续会持续为大家整理优秀的电影片单"
+
+        # [新增] mode_two 的电影简介长度与重写控制 (仅 collection 模式使用)
+        COLLECTION_SUMMARY_MIN_LEN: int = 55
+        COLLECTION_SUMMARY_MAX_LEN: int = 80
+        COLLECTION_SUMMARY_REWRITE_RETRIES: int = 3
 
         # [新增] 1000部阅片计划配置
         # 计划总目标
