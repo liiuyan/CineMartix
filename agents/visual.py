@@ -39,7 +39,7 @@ class VisualAgent:
         Returns:
             list | None: 成功返回本地图片路径列表，失败返回 None。
         """
-        print(f"\n🎨 [3/5 VisualAgent] 正在搜集《{movie_name}》的视觉素材...")
+        print(f"\n🎨 [4/5 VisualAgent] 正在搜集《{movie_name}》的视觉素材...")
         self.downloaded_embeddings = [] # 每次运行前清空指纹库
         
         # 0. 检查是否存在人工素材文件夹

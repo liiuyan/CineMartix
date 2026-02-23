@@ -53,12 +53,16 @@ class MetaFetcher:
         except Exception as e:
             print(f"   ⚠️ 写入 local_scores.json 失败: {e}")
 
-    def fetch_all(self, movie_name, specific_year=None):
+    def fetch_all(self, movie_name, specific_year=None, specific_original_title=None, cache_key=None):
         """
-        [升级] 接收 specific_year 用于精准锚定
+        [升级] 支持外部传入锁定参数，提升重名电影锚定精度
+        - specific_year: 年份锁定
+        - specific_original_title: 原名锁定（如 Contratiempo）
+        - cache_key: 本地分数缓存键（合集可传入 movie|year，避免重名污染）
         """
         year_log = f" ({specific_year})" if specific_year else ""
-        print(f"\n📊 [MetaFetcher] 正在构建数据传导链: 《{movie_name}》{year_log}")
+        original_log = f" | original={specific_original_title}" if specific_original_title else ""
+        print(f"\n📊 [2/5 MetaFetcher] 正在构建数据传导链: 《{movie_name}》{year_log}{original_log}")
         
         # === Step 0: 身份核验 (Identity Resolution) ===
         # 解决中文同名/译名混淆问题 (如 "狩猎" vs "狩猎人")
@@ -66,22 +70,32 @@ class MetaFetcher:
         identity = self._resolve_identity(movie_name, specific_year)
         
         search_year = specific_year if specific_year else ""
-        original_title = None
+        original_title = specific_original_title.strip() if isinstance(specific_original_title, str) and specific_original_title.strip() else None
         
         if identity:
-            search_year = identity.get('year', search_year)
-            original_title = identity.get('original_title')
+            # [本次新增] 锁定参数优先：仅在未锁定时才使用 LLM 解析结果补位
+            if not search_year:
+                search_year = identity.get('year', search_year)
+            if not original_title:
+                original_title = identity.get('original_title')
             print(f"   🆔 身份核验成功: 解析到原版外文名 '{original_title}' ({search_year})")
         else:
             print(f"   ⚠️ 身份核验失败，将直接使用中文名盲搜: '{movie_name}'")
 
         # === Step 1: TMDB 锚定 (Anchor) ===
         # [核心升级] 多级降级精准锚定策略
-        base_info = self._get_tmdb_base(movie_name, search_year)
-        
-        if not base_info and original_title and original_title.lower() != movie_name.lower():
-            print(f"   ⚠️ 中文名搜索未命中，降级使用原版外文名搜索: '{original_title}'")
+        # [本次新增] 若外部明确给了原名，优先按“原名+年份”锁定，失败后再降级中文名
+        if specific_original_title and original_title:
+            print(f"   🎯 使用外部原名锁定优先搜索: '{original_title}'")
             base_info = self._get_tmdb_base(original_title, search_year)
+            if not base_info:
+                print(f"   ⚠️ 原名锁定未命中，降级回中文名搜索: '{movie_name}'")
+                base_info = self._get_tmdb_base(movie_name, search_year)
+        else:
+            base_info = self._get_tmdb_base(movie_name, search_year)
+            if not base_info and original_title and original_title.lower() != movie_name.lower():
+                print(f"   ⚠️ 中文名搜索未命中，降级使用原版外文名搜索: '{original_title}'")
+                base_info = self._get_tmdb_base(original_title, search_year)
 
         if not base_info:
             print("   ❌ TMDB 未找到影片信息，将使用空数据兜底。")
@@ -109,7 +123,8 @@ class MetaFetcher:
             print(f"   🌍 类型/地区获取: {genres} | {region}")
 
         local_scores = self._load_local_scores()
-        movie_cache = local_scores.get(movie_name, {})
+        cache_lookup_key = cache_key.strip() if isinstance(cache_key, str) and cache_key.strip() else movie_name
+        movie_cache = local_scores.get(cache_lookup_key, {})
 
         scores = {
             "year": final_year,
@@ -167,7 +182,7 @@ class MetaFetcher:
             new_cache_entries["douban"] = scores["douban"]
             
         if new_cache_entries:
-            self._save_to_local(movie_name, new_cache_entries)
+            self._save_to_local(cache_lookup_key, new_cache_entries)
             print(f"   💾 [缓存] 成功将《{movie_name}》的评分(含重试更新)写入本地。")
 
         # === Step 4: [新增] 数据质量熔断检查 (Quality Gate) ===

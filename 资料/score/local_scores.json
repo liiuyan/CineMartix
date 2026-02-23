@@ -169,5 +169,23 @@
     "rotten_tomatoes": "91%",
     "metacritic": "81",
     "douban": "8.1"
+  },
+  "四月物语": {
+    "imdb": "7.1",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "8.3"
+  },
+  "情书": {
+    "imdb": "7.9",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "8.9"
+  },
+  "花与爱丽丝": {
+    "imdb": "7.2",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "8.3"
   }
 }

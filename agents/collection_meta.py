@@ -36,15 +36,25 @@ class CollectionMetaFetcher:
         
         for movie in movies:
             movie_name = movie['name']
+            lock_year = str(movie.get('lock_year') or "").strip() or None
+            lock_original_title = str(movie.get('lock_original_title') or "").strip() or None
+            cache_key = self._build_cache_key(movie_name, lock_year, lock_original_title)  # [本次新增] 重名电影使用独立缓存键
+
             douban_score = ""
             imdb_score = ""
+            rotten_tomatoes_score = ""  # [本次新增] 合集片单可选展示烂番茄评分
             
-            print(f"   🔍 正在查询: 《{movie_name}》")
+            lock_log = ""
+            if lock_year:
+                lock_log = f" | 年份锁定: {lock_year}"
+            elif lock_original_title:
+                lock_log = f" | 原名锁定: {lock_original_title}"
+            print(f"   🔍 正在查询: 《{movie_name}》{lock_log}")
             
             # --- 方案 A: 尝试从本地 JSON 获取 ---
             has_full_cache = False
-            if self.use_local and movie_name in local_scores:
-                local_data = local_scores[movie_name]
+            if self.use_local and cache_key in local_scores:
+                local_data = local_scores[cache_key]
                 # [核心修改] 满血判定：除了要包含 4 个键，且核心分数 (douban, imdb) 不能是 N/A
                 has_all_keys = all(k in local_data for k in ("douban", "imdb", "rotten_tomatoes", "metacritic"))
                 
@@ -57,14 +67,15 @@ class CollectionMetaFetcher:
             
             if has_full_cache:
                 print(f"      📥 命中本地缓存 (local_scores.json 满血状态)")
-                local_data = local_scores[movie_name]
+                local_data = local_scores[cache_key]
                 # 兼容处理：防呆，防止 JSON 里写了数字类型或 None
                 douban_score = str(local_data.get('douban', '')).strip()
                 imdb_score = str(local_data.get('imdb', '')).strip()
+                rotten_tomatoes_score = str(local_data.get('rotten_tomatoes', '')).strip()
             
             # --- 方案 B: 降级调用网络 API 抓取 (增量补齐或全量抓取) ---
             else:
-                if self.use_local and movie_name in local_scores:
+                if self.use_local and cache_key in local_scores:
                     print(f"      🌐 本地缓存未满血(存在缺失或N/A)，触发 API 抓取补齐...")
                 elif self.use_local:
                     print(f"      🌐 本地缓存未命中，降级调用 API 网络抓取...")
@@ -73,9 +84,20 @@ class CollectionMetaFetcher:
                     
                 try:
                     # 调用原版的 fetch_all 逻辑获取元数据，它会自动处理局部缓存并保存新数据
-                    api_data = self.api_fetcher.fetch_all(movie_name)
+                    api_data = self.api_fetcher.fetch_all(
+                        movie_name,
+                        specific_year=lock_year,
+                        specific_original_title=lock_original_title,
+                        cache_key=cache_key
+                    )
                     douban_score = str(api_data.get('douban', '')).strip()
                     imdb_score = str(api_data.get('imdb', '')).strip()
+                    rotten_tomatoes_score = str(api_data.get('rotten_tomatoes', '')).strip()
+
+                    # [本次新增] 回写可选展示字段，供片单追加开关使用
+                    movie['year'] = str(api_data.get('year', '')).strip()
+                    movie['genres'] = str(api_data.get('genres', '')).strip()
+                    movie['region'] = str(api_data.get('region', '')).strip()
                 except Exception as e:
                     # 【核心修改】拦截原版的异常熔断！合集模式必须保证后续电影能继续处理
                     print(f"      ⚠️ API 抓取异常或无数据 (已拦截): {e}")
@@ -95,12 +117,36 @@ class CollectionMetaFetcher:
                 print(f"      ⚠️ [警告] 电影《{movie_name}》未查到 IMDb 分数，将在海报中隐藏该元素。")
             else:
                 print(f"      ✅ IMDb: {imdb_score}")
+
+            if rotten_tomatoes_score in invalid_vals:
+                rotten_tomatoes_score = ""
+                print(f"      ⚠️ [警告] 电影《{movie_name}》未查到烂番茄分数，将在片单中隐藏该元素。")
+            else:
+                print(f"      ✅ 烂番茄: {rotten_tomatoes_score}")
                 
             # 将清洗后的分数回写到字典中
             movie['douban'] = douban_score
             movie['imdb'] = imdb_score
+            movie['rotten_tomatoes'] = rotten_tomatoes_score
+
+            # [本次新增] 若外部锁定的是年份，兜底写回 year，确保 SHOW_YEAR 打开时可显示
+            if lock_year and not movie.get('year'):
+                movie['year'] = lock_year
             
         return movies
+
+    def _build_cache_key(self, movie_name: str, lock_year: str | None, lock_original_title: str | None) -> str:
+        """
+        为合集模式生成缓存键：
+        - 默认: 电影名
+        - 年份锁定: 电影名｜年份
+        - 原名锁定: 电影名｜原名
+        """
+        if lock_year:
+            return f"{movie_name}｜{lock_year}"
+        if lock_original_title:
+            return f"{movie_name}｜{lock_original_title}"
+        return movie_name
 
     def _load_local_scores(self) -> dict:
         """

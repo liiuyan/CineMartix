@@ -32,8 +32,8 @@ def run_single_mode():
 
     # === Step 1: 选题 (Topic) ===
     topic_agent = TopicAgent()
-    # [修改] 接收元组: (电影名, 年份)
-    movie_name, movie_year = topic_agent.run()
+    # [修改] 接收元组: (电影名, 年份锁定, 原名锁定, 指定标题)
+    movie_name, movie_year, movie_original_title, forced_title = topic_agent.run()
     
     if not movie_name:
         print("😴 今日无合适选题，程序休眠。")
@@ -43,8 +43,12 @@ def run_single_mode():
     try:
         fetcher = MetaFetcher()
         # 获取所有评分、票房、年份等元数据
-        # [修改] 传递 movie_year，进行精准锚定
-        meta_data = fetcher.fetch_all(movie_name, specific_year=movie_year)
+        # [修改] 传递年份/原名锁定参数，进行精准锚定
+        meta_data = fetcher.fetch_all(
+            movie_name,
+            specific_year=movie_year,
+            specific_original_title=movie_original_title
+        )
     except Exception as e:
         # 若数据猎取阶段熔断 (如无评分)，则终止流程，防止生成垃圾内容
         print(f"❌ 数据猎取失败，终止流程: {e}")
@@ -56,7 +60,12 @@ def run_single_mode():
 
     # === Step 3: 文案创作 (Writer) ===
     writer_agent = WriterAgent()
-    note_data = writer_agent.run(movie_name, meta_data, reviews=reviews)  # [重构 板块5] 传入评论数据
+    note_data = writer_agent.run(
+        movie_name,
+        meta_data,
+        reviews=reviews,
+        forced_title=forced_title
+    )  # [重构 板块5] 传入评论数据 + [本次新增] 可选指定标题
     
     if not note_data:
         print("❌ 文案生成失败 (可能是字数压缩熔断)，终止流程。")

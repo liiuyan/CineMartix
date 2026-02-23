@@ -7,7 +7,7 @@ class ExecutionAgent:
         self.client = XHSClient()
 
     def run(self, note_data, image_paths):
-        print("\n🚀 [4/5 ExecutionAgent] 准备发布...")
+        print("\n🚀 [5/5 ExecutionAgent] 准备发布...")
         
         status = self.client.call_tool("check_login_status")
         is_logged_in = False

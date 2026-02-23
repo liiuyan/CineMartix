@@ -124,6 +124,9 @@ class CollectionWriterAgent:
                 extras.append(f"豆瓣 {m['douban']}")
             if getattr(config.Strategy.Writer, 'SHOW_IMDB', False) and m.get('imdb') and m.get('imdb') != 'N/A':
                 extras.append(f"IMDb {m['imdb']}")
+            # [本次新增] 烂番茄分数放在 IMDb 与 类型之间，受 config 开关控制
+            if getattr(config.Strategy.Writer, 'SHOW_ROTTEN_TOMATOES', False) and m.get('rotten_tomatoes') and m.get('rotten_tomatoes') != 'N/A':
+                extras.append(f"烂番茄 {m['rotten_tomatoes']}")
             if getattr(config.Strategy.Writer, 'SHOW_GENRE', False) and m.get('genres') and m.get('genres') != '未知类型':
                 extras.append(m['genres'])
             if getattr(config.Strategy.Writer, 'SHOW_REGION', False) and m.get('region') and m.get('region') != '未知地区':

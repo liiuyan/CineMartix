@@ -10,7 +10,9 @@ class CollectionTopicAgent:
     负责扫描 config.COLLECTION_DIR，寻找符合规范的合集文件夹。
     规范：
     1. 文件夹命名：探讨主题｜笔记标题 (或半角|)
-    2. 图片命名：电影名｜阿拉伯数字.jpg
+    2. 图片命名支持两种：
+       - 旧格式：电影名｜阿拉伯数字.jpg
+       - 新格式：电影名｜年份或原名｜阿拉伯数字.jpg
     3. 严格模式：一旦发现命名不规范的图片，直接跳过整个文件夹。
     """
     def __init__(self):
@@ -117,12 +119,37 @@ class CollectionTopicAgent:
                 
             # 严格命名校验
             base_name = os.path.splitext(file_name)[0]
-            movie_name, index_str = self._parse_name(base_name)
-            
-            # 查杀 1：没有分隔符
+            parts = self._split_by_pipe(base_name)
+
+            # 支持两种格式：
+            # 1) 电影名｜序号
+            # 2) 电影名｜年份或原名｜序号
+            if len(parts) == 2:
+                movie_name, index_str = parts
+                lock_year = None
+                lock_original_title = None
+            elif len(parts) == 3:
+                movie_name, lock_hint, index_str = parts
+                if not lock_hint:
+                    print(f"      ⛔ [严格模式熔断] 发现不规范文件: {file_name}")
+                    print(f"         三段式命名的第二段(年份或原名)不能为空。已跳过该合集！")
+                    return None
+                # [本次新增] 自动识别：第二段是4位合理年份则按年份锁定，否则按原名锁定
+                if self._is_reasonable_year(lock_hint):
+                    lock_year = lock_hint
+                    lock_original_title = None
+                else:
+                    lock_year = None
+                    lock_original_title = lock_hint
+            else:
+                print(f"      ⛔ [严格模式熔断] 发现不规范文件: {file_name}")
+                print(f"         必须为 '电影名|阿拉伯数字.jpg' 或 '电影名|年份或原名|阿拉伯数字.jpg'。已跳过该合集！")
+                return None
+
+            # 查杀 1：分段为空
             if not movie_name or not index_str:
                 print(f"      ⛔ [严格模式熔断] 发现不规范文件: {file_name}")
-                print(f"         必须为 '电影名|阿拉伯数字.jpg'。已跳过该合集！")
+                print(f"         文件名分段不能为空。已跳过该合集！")
                 return None
                 
             # 查杀 2：后缀不是数字
@@ -137,12 +164,30 @@ class CollectionTopicAgent:
             movies.append({
                 "name": movie_name,
                 "path": full_path,
-                "index": index
+                "index": index,
+                # [本次新增] 精准锁定参数，供 CollectionMetaFetcher -> MetaFetcher 透传
+                "lock_year": lock_year,
+                "lock_original_title": lock_original_title
             })
             
         # 根据数字编号进行严谨的升序排列 (1, 2, 3...)
         movies.sort(key=lambda x: x["index"])
         return movies
+
+    def _split_by_pipe(self, raw_name: str) -> list:
+        """统一兼容全角/半角分隔符，返回去首尾空格后的分段列表。"""
+        normalized = raw_name.replace("|", "｜")
+        return [p.strip() for p in normalized.split("｜")]
+
+    def _is_reasonable_year(self, value: str) -> bool:
+        """
+        判断是否为“可作为电影年份”的四位数字。
+        采用合理区间，避免把普通数字误判成年份。
+        """
+        if not value or len(value) != 4 or (not value.isdigit()):
+            return False
+        year = int(value)
+        return 1888 <= year <= 2030
 
     def finish_collection(self, folder_path: str):
         """

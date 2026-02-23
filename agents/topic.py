@@ -14,19 +14,25 @@ class TopicAgent:
 
     def run(self):
         """
-        [升级] 返回元组: (movie_name, specific_year)
-        specific_year 为 None 表示不指定年份。
+        [升级] 返回元组:
+        (movie_name, specific_year, specific_original_title, forced_title)
         """
-        print("\n🔍 [1/4 TopicAgent] 正在进行选题决策...")
+        print("\n🔍 [1/5 TopicAgent] 正在进行选题决策...")
 
         # === 1. 优先检查手动待办列表 (Pending List) ===
         manual_result = self._check_pending_list()
         if manual_result:
-            name, year = manual_result
-            year_str = f" ({year})" if year else ""
-            print(f"🎯 [主动点播] 检测到待办任务，强制执行: 《{name}》{year_str}")
+            name, year, original_title, forced_title = manual_result
+            lock_str = ""
+            if year:
+                lock_str = f" | 年份锁定: {year}"
+            elif original_title:
+                lock_str = f" | 原名锁定: {original_title}"
+
+            title_str = " | 指定标题: 是" if forced_title else ""
+            print(f"🎯 [主动点播] 检测到待办任务，强制执行: 《{name}》{lock_str}{title_str}")
             print("   (已跳过历史查重，默认您知道自己在做什么)")
-            return name, year
+            return name, year, original_title, forced_title
 
         # === 2. AI 自动选题 (自主漫游模式) ===
         print("🤖 [AI 自动模式] 正在启动随机漫游探索...")
@@ -126,7 +132,8 @@ class TopicAgent:
                     # 命中！
                     year_info = f" ({year})" if year else ""
                     print(f"      ✅ 最终入选: 《{name}》{year_info}")
-                    return name, year
+                    # [本次新增] 与 pending 三段式返回保持同构
+                    return name, year, None, None
             
             print(f"      ⚠️ 本轮 {len(candidates)} 部推荐全部重复，AI 正在调整探索方向...")
             time.sleep(1)
@@ -134,4 +141,4 @@ class TopicAgent:
         # 诚实熔断
         print(f"\n   🛑 经过 {max_retries} 轮探索 (审查了约 {max_retries * batch_size} 部电影)，未发现优质新片。")
         print("   😴 为保证质量，本次不强行发布。建议稍后重试。")
-        return None, None
+        return None, None, None, None

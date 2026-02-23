@@ -164,10 +164,14 @@ class PendingManager:
     def read_next(self):
         """
         读取 pending.txt 中的第一条有效任务。
-        支持格式: "电影名" 或 "电影名 | 年份" (兼容全角/半角分隔符)
+        支持格式 (兼容全角/半角分隔符):
+        1) 电影名
+        2) 电影名 | 年份或原名
+        3) 电影名 | 年份或原名 | 标题
+           - 标题中允许继续包含 | 或 ｜，解析时只切前两个分隔符。
         
         Returns:
-            tuple | None: 成功返回 (movie_name, year)，year 可能为 None；
+            tuple | None: 成功返回 (movie_name, specific_year, specific_original_title, forced_title)
                           无任务时返回 None
         """
         if not os.path.exists(self.pending_file):
@@ -182,16 +186,38 @@ class PendingManager:
                 return None
 
             raw_line = valid_lines[0].strip()
+            normalized = raw_line.replace("｜", "|")
+            # [本次新增] 只切前两个分隔符，允许标题中继续出现 "|"。
+            parts = [p.strip() for p in normalized.split("|", 2)]
 
-            # 解析: 兼容全角 ｜ 和半角 |
-            if "｜" in raw_line:
-                parts = raw_line.split("｜")
-                return parts[0].strip(), parts[1].strip()
-            elif "|" in raw_line:
-                parts = raw_line.split("|")
-                return parts[0].strip(), parts[1].strip()
-            else:
-                return raw_line, None
+            # Case 1: 仅电影名
+            if len(parts) == 1:
+                movie_name = parts[0]
+                return movie_name, None, None, None
+
+            # Case 2/3: 电影名 + 锁定信息 + (可选标题)
+            movie_name = parts[0]
+            lock_hint = parts[1] if len(parts) >= 2 else ""
+            forced_title = parts[2] if len(parts) == 3 else None
+
+            if not movie_name:
+                print(f"⚠️ pending 第一条任务格式异常（缺少电影名）: {raw_line}")
+                return None
+
+            specific_year = None
+            specific_original_title = None
+            if lock_hint:
+                # [本次新增] 自动识别第二段：四位数字为年份，否则视为原名
+                if len(lock_hint) == 4 and lock_hint.isdigit():
+                    specific_year = lock_hint
+                else:
+                    specific_original_title = lock_hint
+
+            # 标题允许为空串时回退为 None
+            if forced_title is not None and not forced_title:
+                forced_title = None
+
+            return movie_name, specific_year, specific_original_title, forced_title
 
         except Exception as e:
             print(f"⚠️ 读取 pending.txt 出错: {e}")

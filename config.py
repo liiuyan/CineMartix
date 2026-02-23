@@ -89,6 +89,7 @@ class Strategy:
         SHOW_YEAR: bool = False         # [本次新增] 是否在片单后追加电影年份
         SHOW_DOUBAN: bool = True       # 是否在片单后追加豆瓣评分
         SHOW_IMDB: bool = False        # 是否在片单后追加IMDb评分
+        SHOW_ROTTEN_TOMATOES: bool = False  # [本次新增] 是否在片单后追加烂番茄评分
         SHOW_GENRE: bool = False       # 是否在片单后追加电影类型
         SHOW_REGION: bool = False       # 是否在片单后追加国家/地区
 
@@ -96,7 +97,7 @@ class Strategy:
         # mode_one: 片单 + 开场白 + 发散 + 引导语 + 进度
         # mode_two: 片单 + 开场白 + 简介列表 + 引导语 + 进度
         # mode_three: 片单 + 开场白 + 引导语 + 进度
-        COLLECTION_BODY_MODE: str = "mode_three"
+        COLLECTION_BODY_MODE: str = "mode_one"
 
         # [新增] 合集模式正文引导语控制 (仅 collection 模式使用)
         COLLECTION_SHOW_CTA: bool = True

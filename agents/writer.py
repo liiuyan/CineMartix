@@ -56,7 +56,7 @@ class WriterAgent:
         # [重构 板块5] 删除 self.tmdb_key — API 密钥不再由 Writer 持有
         self.brain = LLMBrain()
 
-    def run(self, movie_name: str, meta_data: dict = None, reviews: list = None) -> dict | None:
+    def run(self, movie_name: str, meta_data: dict = None, reviews: list = None, forced_title: str = None) -> dict | None:
         """
         执行文案生成主流程。
 
@@ -64,6 +64,7 @@ class WriterAgent:
             movie_name (str): 电影名称。
             meta_data (dict, optional): MetaFetcher 抓取的评分与票房数据。
                                       包含: douban, imdb, revenue_cny 等。
+            forced_title (str, optional): 外部指定标题。若提供则强制覆盖 AI 标题生成。
 
         Returns:
             dict | None: 生成成功返回笔记数据字典 (title, content, tags)，失败返回 None。
@@ -81,8 +82,19 @@ class WriterAgent:
         movie_name = clean_name
         # ===================================================================
 
-        print(f"\n✍️ [2/5 WriterAgent] 正在撰写高级感文案 (注入真实评分数据)...")
+        # [本次新增] single 点播可指定标题：仅做长度熔断，不走 AI 标题生成/重写。
+        if isinstance(forced_title, str):
+            forced_title = forced_title.strip()
+        if not forced_title:
+            forced_title = None
+        if forced_title and self._count(forced_title) > 20:
+            print(f"❌ 指定标题超出 20 字上限，已熔断: {forced_title}")
+            return None
+
+        print(f"\n✍️ [3/5 WriterAgent] 正在撰写高级感文案 (注入真实评分数据)...")
         print(f"   🎬 当前处理电影: 《{movie_name}》") # [新增] 打印确认清洗后的片名
+        if forced_title:
+            print(f"   🏷️ 检测到外部指定标题，将跳过 AI 标题生成: {forced_title}")
         
         if meta_data is None: meta_data = {}
 
@@ -143,6 +155,17 @@ class WriterAgent:
             f"票房: {box_office_str}"  # [新增] 注入带标签的票房
         )
 
+        # [本次新增] 指定标题模式下，禁止 AI 产出 title 字段。
+        if forced_title:
+            title_instruction_block = f"""
+        0. **标题控制**：标题已由系统外部指定为「{forced_title}」。
+           你严禁生成 title 字段，也不要在任何字段里重复输出这个标题。
+            """
+            title_json_schema_block = "（本次禁止输出 title 字段）"
+        else:
+            title_instruction_block = ""
+            title_json_schema_block = f"1. title: 标题 (<20字, 必带Emoji, **必须包含电影名《{movie_name}》**, **严格遵循上述美学协议**)"
+
         # 构建 Prompt (Few-Shot Learning + Chain of Thought)
         prompt = f"""
         请为电影《{movie_name}》写一篇排版精美、有高级感的小红书笔记。
@@ -150,8 +173,9 @@ class WriterAgent:
         {review_context}
         
         {AESTHETICS_PROTOCOL}  <-- 【核心植入：美学协议】
-        
+
         【核心指令】：
+        {title_instruction_block}
         1. **简介流畅化 (分段)**：synopsis 字段请写一段引人入胜的剧情叙述（约150-200字）。**为了阅读舒适，请务必使用换行符将内容分成 2 个自然段**，不要堆成一大块。不要剧透核心谜底，重点营造氛围。
         
         2. **荣誉高光 (宁缺毋滥)**：honors 字段请优先输出重磅奖项(如奥斯卡/金球/戛纳/柏林/威尼斯)或影史地位(如IMDb Top 250)。
@@ -172,7 +196,7 @@ class WriterAgent:
         4. **拒绝模版**：ending 字段请自由发挥，写一段简短、口语化、有共鸣的结尾。
 
         【返回 JSON】：
-        1. title: 标题 (<20字, 必带Emoji, **必须包含电影名《{movie_name}》**, **严格遵循上述美学协议**)
+        {title_json_schema_block}
         
         2. basic_info: 
            {{
@@ -226,12 +250,19 @@ class WriterAgent:
             
             # === 4. 智能篇幅控制 (Sanitization) ===
             # 这里包含标题重写逻辑和正文压缩逻辑
-            # [Fix] 传入 movie_name，用于标题合规性检查
-            is_valid = self._sanitize_content(data, selected_emojis, meta_data, movie_name)
-            
-            if not is_valid:
-                print("❌ 文案生成失败：标题始终无法通过合规性检查（长度或缺失片名）。")
-                return None
+            # [本次新增] 若存在 forced_title，则跳过 AI 标题合规漏斗，只保留 tags 防呆处理。
+            if forced_title:
+                if len(data.get('tags', [])) > 10:
+                    data['tags'] = data['tags'][:10]
+                final_title = forced_title
+            else:
+                # [Fix] 传入 movie_name，用于标题合规性检查
+                is_valid = self._sanitize_content(data, selected_emojis, meta_data, movie_name)
+                
+                if not is_valid:
+                    print("❌ 文案生成失败：标题始终无法通过合规性检查（长度或缺失片名）。")
+                    return None
+                final_title = data['title']
 
             # === 5. 组装最终正文 (含进度条逻辑与 Tags 动态长度计算) ===
             
@@ -308,7 +339,7 @@ class WriterAgent:
                 break
             
             return {
-                "title": data['title'],
+                "title": final_title,
                 "content": final_content,
                 "tags": data['tags']
             }
