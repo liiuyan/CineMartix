@@ -43,27 +43,17 @@ class PreviewVisualAgent:
         # - stroke_width/stroke_color: 描边参数
         # - shadow_offset/shadow_alpha: 阴影偏移与透明度
         self.layout_config = {
-            # 顶部日期徽章样式（白底黑字圆角标签）
-            "date": {
-                "x": 80,  # 徽章左上角 X 坐标（基于 1920x1080 画布）
-                "y": 0,  # 徽章左上角 Y 坐标；0 表示贴近顶部
-                "size": 56,  # 日期文字字号
-                "font_path": config.FONT_QUOTE_PATH,  # 日期文字字体（当前复用 quote 字体）
-                "bg_color": "#FFFFFF",  # 徽章背景色
-                "text_color": "#000000",  # 日期文字颜色
-                "padding": (28, 16),  # 徽章内边距 (左右, 上下)
-                "radius": 10,  # 徽章圆角半径
-            },
-            # 底部三段文字（英文原名/中文名/噱头）的纵向间距控制
+            # 底部三段文字（英文原名+日期/中文名/噱头）的纵向间距控制
+            # [样式迁移] 对齐你提供的新渲染方案：左下角自下而上堆叠。
             "bottom_layout": {
-                "margin_bottom": 30,  # 最底部安全边距：噱头文本距离画布底部的间隔
+                "margin_bottom": 20,  # 最底部安全边距：噱头文本距离画布底部的间隔
                 "gap_cn_sub": 20,  # 中文片名 与 噱头 之间的垂直间距
                 "gap_en_cn": 10,  # 英文原名 与 中文片名 之间的垂直间距
             },
             # 英文原名样式（最上层）
             "title_en": {
                 "x": 80,  # 英文原名起始 X 坐标
-                "size": 72,  # 英文原名字号
+                "size": 75,  # 英文原名字号
                 "font_path": config.FONT_QUOTE_PATH,  # 英文原名字体
                 "text_color": "#FFFFFF",  # 主文字颜色
                 "stroke_width": 1,  # 文字描边宽度（提升暗背景可读性）
@@ -74,7 +64,7 @@ class PreviewVisualAgent:
             # 中文片名样式（中间层，视觉权重最高）
             "title_cn": {
                 "x": 0,  # 中文片名起始 X 坐标
-                "size": 120,  # 中文片名字号（主视觉）
+                "size": 110,  # 中文片名字号（主视觉）
                 "font_path": config.FONT_TITLE_PATH,  # 中文片名字体
                 "text_color": "#FFFFFF",  # 主文字颜色
                 "stroke_width": 3,  # 文字描边宽度（主标题更粗）
@@ -85,7 +75,7 @@ class PreviewVisualAgent:
             # 噱头样式（底部第一层）
             "subtitle": {
                 "x": 80,  # 噱头起始 X 坐标
-                "size": 70,  # 噱头字号
+                "size": 80,  # 噱头字号
                 "font_path": config.FONT_SCORE_PATH,  # 噱头字体
                 "text_color": "#FFFFFF",  # 主文字颜色
                 "stroke_width": 2,  # 文字描边宽度
@@ -173,8 +163,7 @@ class PreviewVisualAgent:
     def _render_single_image(self, movie: dict) -> Image.Image | None:
         """
         渲染单张 16:9 图：
-        - 顶部: 上映日期徽章
-        - 底部: 原名 / 中文名 / 噱头（自下而上排版）
+        - 底部: 英文原名+日期 / 中文名 / 噱头（自下而上排版）
         """
         try:
             with Image.open(movie["path"]) as img:
@@ -184,16 +173,20 @@ class PreviewVisualAgent:
 
             draw = ImageDraw.Draw(canvas)
 
-            # 日期
-            date_text = str(movie.get("poster_date") or "").strip()
-            if date_text:
-                self._draw_date_badge(draw, date_text, self.layout_config["date"])
-
-            # 文本动态排版（从下往上），可避免底部遮挡失衡。
+            # [样式迁移] 文本动态排版（从下往上）：
+            # 噱头(底) -> 中文名(中) -> 英文名+日期(上)。
             bl = self.layout_config["bottom_layout"]
             text_en = str(movie.get("poster_title_en") or "").strip()
             text_cn = str(movie.get("poster_title_cn") or "").strip()
             text_hook = str(movie.get("poster_hook") or "").strip()
+            date_text = str(movie.get("poster_date") or "").strip()
+
+            # [关键修复] 解决“原名为空但日期存在”时出现“|2026.xx.xx”的问题。
+            # 规则：
+            # 1) 原名+日期都有 -> "原名 | 日期"
+            # 2) 仅原名 -> "原名"
+            # 3) 仅日期 -> "日期"
+            merged_title_en = self._merge_title_en_and_date(text_en, date_text)
 
             # 分别加载三类文本字体，便于独立调样式。
             cfg_sub = self.layout_config["subtitle"]
@@ -203,60 +196,42 @@ class PreviewVisualAgent:
             font_cn = self._safe_load_font(cfg_cn["font_path"], cfg_cn["size"])
             font_en = self._safe_load_font(cfg_en["font_path"], cfg_en["size"])
 
-            # Hook (底部第一层)
-            y_cursor = 1080 - bl["margin_bottom"]
+            # [样式迁移] 与你新代码一致：先算底部噱头，再向上推中文，再向上推英文+日期。
+            y_sub = y_cn = y_en = None
+
             if text_hook:
                 h_sub = self._text_height(draw, text_hook, font_sub)
-                y_sub = y_cursor - h_sub
-                self._render_text_element(canvas, draw, text_hook, cfg_sub, y_sub)
-                y_cursor = y_sub - bl["gap_cn_sub"]
+                y_sub = 1080 - bl["margin_bottom"] - h_sub
 
-            # 中文名（第二层）
             if text_cn:
                 h_cn = self._text_height(draw, text_cn, font_cn)
-                y_cn = y_cursor - h_cn
-                self._render_text_element(canvas, draw, text_cn, cfg_cn, y_cn)
-                y_cursor = y_cn - bl["gap_en_cn"]
+                if y_sub is not None:
+                    y_cn = y_sub - bl["gap_cn_sub"] - h_cn
+                else:
+                    # 噱头缺失时，中文名直接落到最底部安全线，避免整块上浮过高。
+                    y_cn = 1080 - bl["margin_bottom"] - h_cn
 
-            # 英文/原名（第三层，中国电影此字段可能为空）
-            if text_en:
-                h_en = self._text_height(draw, text_en, font_en)
-                y_en = y_cursor - h_en
-                self._render_text_element(canvas, draw, text_en, cfg_en, y_en)
+            if merged_title_en:
+                h_en = self._text_height(draw, merged_title_en, font_en)
+                if y_cn is not None:
+                    y_en = y_cn - bl["gap_en_cn"] - h_en
+                elif y_sub is not None:
+                    y_en = y_sub - bl["gap_en_cn"] - h_en
+                else:
+                    # 仅英文/日期时，保持贴近底部显示，避免空画面。
+                    y_en = 1080 - bl["margin_bottom"] - h_en
+
+            if text_hook and y_sub is not None:
+                self._render_text_element(canvas, draw, text_hook, cfg_sub, y_sub)
+            if text_cn and y_cn is not None:
+                self._render_text_element(canvas, draw, text_cn, cfg_cn, y_cn)
+            if merged_title_en and y_en is not None:
+                self._render_text_element(canvas, draw, merged_title_en, cfg_en, y_en)
 
             return canvas
         except Exception as e:
             print(f"      ❌ 渲染异常: {e}")
             return None
-
-    def _draw_date_badge(self, draw: ImageDraw, text: str, cfg: dict):
-        """绘制顶部白底圆角日期标签。"""
-        font = self._safe_load_font(cfg["font_path"], cfg["size"])
-        bbox = draw.textbbox((0, 0), text, font=font, anchor="mm")
-        text_w = bbox[2] - bbox[0]
-        text_h = bbox[3] - bbox[1]
-
-        pad_x, pad_y = cfg["padding"]
-        x, y = cfg["x"], cfg["y"]
-        radius = cfg["radius"]
-        visible_w = text_w + pad_x * 2
-        visible_h = text_h + pad_y * 2
-
-        draw.rounded_rectangle(
-            [x, y - radius, x + visible_w, y + visible_h],
-            radius=radius,
-            fill=cfg["bg_color"],
-        )
-
-        center_x = x + visible_w / 2
-        center_y = y + visible_h / 2
-        draw.text(
-            (center_x, center_y),
-            text,
-            font=font,
-            fill=cfg["text_color"],
-            anchor="mm",
-        )
 
     def _render_text_element(
         self, canvas: Image.Image, draw: ImageDraw, text: str, cfg: dict, y: float
@@ -343,6 +318,22 @@ class PreviewVisualAgent:
         """获取单行文本像素高度，用于自下而上排版计算。"""
         bbox = draw.textbbox((0, 0), text, font=font, anchor="lt")
         return bbox[3] - bbox[1]
+
+    def _merge_title_en_and_date(self, title_en: str, date_text: str) -> str:
+        """
+        合并英文原名与日期，避免出现前导分隔符“|2026.xx.xx”。
+
+        规则:
+        - title_en + date_text -> "title_en | date_text"
+        - 仅 title_en -> "title_en"
+        - 仅 date_text -> "date_text"
+        """
+        clean_title = str(title_en or "").strip().rstrip("|").strip()
+        clean_date = str(date_text or "").strip().lstrip("|").strip()
+
+        if clean_title and clean_date:
+            return f"{clean_title} | {clean_date}"
+        return clean_title or clean_date
 
     def _safe_load_font(self, path: str, size: int) -> ImageFont.FreeTypeFont:
         """字体兜底：缺字库或路径异常时返回默认字体，避免渲染崩溃。"""

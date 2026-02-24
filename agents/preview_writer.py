@@ -161,7 +161,15 @@ class PreviewWriterAgent:
         if not source:
             return ""
 
-        prompt = f"""
+        # 这里严格按配置次数重试；不是“尽力而为”，而是“达标才通过”。
+        # [关键约束] 每次都基于“原始查询到的简介 source”重写，绝不基于上一轮 AI 文本扩写/缩写。
+        length_hint = ""
+        for i in range(self.summary_retries):
+            attempt = i + 1
+            if attempt > 1:
+                print(f"      🔄 《{movie_name}》简介重写重试 {attempt}/{self.summary_retries}")
+
+            prompt = f"""
 请把以下电影简介改写成一段 {self.summary_min}-{self.summary_max} 字的中文简介。
 电影名：{movie_name}
 原简介：{source}
@@ -169,17 +177,34 @@ class PreviewWriterAgent:
 要求：
 1) 必须是自然中文，不要分点，不要换行。
 2) 只输出简介正文，不要加片名，不要加引号。
+3) 只能基于“原简介”中的事实信息，不要编造新设定。
+{length_hint}
 """
-        # 这里严格按配置次数重试；不是“尽力而为”，而是“达标才通过”。
-        for i in range(self.summary_retries):
-            if i > 0:
-                print(f"      🔄 《{movie_name}》简介重写重试 {i+1}/{self.summary_retries}")
             raw = self.brain.think(prompt, system_prompt="你是电影编辑，只返回简介正文。")
             if not raw:
                 continue
             text = self._clean_plain_text(raw)
-            if self.summary_min <= len(text) <= self.summary_max:
+            current_len = len(text)
+            if self.summary_min <= current_len <= self.summary_max:
                 return text
+            if current_len < self.summary_min:
+                print(
+                    f"      ⚠️ 《{movie_name}》简介不达标: {current_len}字 "
+                    f"(要求{self.summary_min}-{self.summary_max})，尝试 {attempt}/{self.summary_retries}，下一轮要求更长。"
+                )
+                length_hint = (
+                    f"4) 你上一版明显偏短。下一版请在不新增事实的前提下补充细节，"
+                    f"把长度提高到 {self.summary_min}-{self.summary_max} 字。"
+                )
+            else:
+                print(
+                    f"      ⚠️ 《{movie_name}》简介不达标: {current_len}字 "
+                    f"(要求{self.summary_min}-{self.summary_max})，尝试 {attempt}/{self.summary_retries}，下一轮要求更短。"
+                )
+                length_hint = (
+                    f"4) 你上一版明显偏长。下一版请压缩表达但保留核心信息，"
+                    f"把长度控制到 {self.summary_min}-{self.summary_max} 字。"
+                )
         return ""
 
     def _assemble_note(self, theme: str, title: str, movies: list) -> dict | None:
