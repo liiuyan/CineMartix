@@ -63,7 +63,7 @@ class PreviewVisualAgent:
             },
             # 中文片名样式（中间层，视觉权重最高）
             "title_cn": {
-                "x": 0,  # 中文片名起始 X 坐标
+                "x": 0,  # 中文片名起始 X 坐标 
                 "size": 110,  # 中文片名字号（主视觉）
                 "font_path": config.FONT_TITLE_PATH,  # 中文片名字体
                 "text_color": "#FFFFFF",  # 主文字颜色
