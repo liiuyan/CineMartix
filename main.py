@@ -15,6 +15,12 @@ from agents.collection_meta import CollectionMetaFetcher
 from agents.collection_writer import CollectionWriterAgent
 from agents.collection_visual import CollectionVisualAgent
 
+# [v5.0 新增] 新片速递赛道 Agent
+from agents.preview_topic import PreviewTopicAgent
+from agents.preview_meta import PreviewMetaFetcher
+from agents.preview_writer import PreviewWriterAgent
+from agents.preview_visual import PreviewVisualAgent
+
 def run_single_mode():
     """
     🚀 小红书全自动运营主程序 (Main Pipeline)
@@ -162,6 +168,74 @@ def run_collection_mode():
     else:
         print("\n❌ 发布失败，请检查小红书接口日志。")
 
+
+def run_preview_mode():
+    """
+    🆕 新片速递赛道 (Preview Track)
+
+    设计原则:
+    1) 与 single/collection 完全解耦，互不影响。
+    2) 主控保持薄调度：校验与业务细节下沉到 preview_* Agent。
+    3) preview 发布不写 history，不计本地分数缓存。
+    """
+    print("\n==========================================")
+    print("   🆕 [预告模式] Preview Pipeline Start   ")
+    print("==========================================")
+
+    sub_mode = getattr(getattr(config.Strategy, 'Preview', None), 'SUB_MODE', 'landscape')
+    if sub_mode not in ("landscape", "poster"):
+        print(f"❌ [Preview] SUB_MODE 配置非法: {sub_mode}，仅支持 'landscape' 或 'poster'")
+        return
+
+    print(f"🧭 [Preview] 当前子模式: {sub_mode}")
+
+    # === Step 1: 任务扫描 ===
+    # 从 资料/previews/<sub_mode>/ 扫描“主题｜标题”任务目录与图片序列。
+    topic_agent = PreviewTopicAgent()
+    topic_data = topic_agent.run()
+    if not topic_data:
+        return
+
+    # === Step 2: 元数据采集 ===
+    # 采集链路: TMDB -> Serper -> Gemini；任一电影必填字段缺失则整夹熔断。
+    meta_fetcher = PreviewMetaFetcher()
+    movies_with_meta = meta_fetcher.run(topic_data["movies"])
+    if not movies_with_meta:
+        return
+
+    # === Step 3: 文案与标签组装 ===
+    # 在此阶段执行噱头/简介长度约束与正文+tags总长度熔断。
+    writer_agent = PreviewWriterAgent()
+    writer_data = writer_agent.run(
+        topic_data["theme"],
+        topic_data["title"],
+        movies_with_meta,
+    )
+    if not writer_data:
+        return
+
+    # === Step 4: 视觉处理 ===
+    # landscape: 渲染+拼接；poster: 原图直发。
+    visual_agent = PreviewVisualAgent()
+    final_images = visual_agent.run(writer_data["movies"], topic_data["folder_path"])
+    if not final_images:
+        print("❌ [Preview] 视觉处理失败，终止流程。")
+        return
+
+    # === Step 5: 发布 ===
+    # 复用统一 ExecutionAgent 发布通道。
+    execution_agent = ExecutionAgent()
+    success = execution_agent.run(writer_data["note_data"], final_images)
+
+    # === Step 6: 归档 ===
+    # 仅发布成功后归档；preview 不写 history。
+    if success:
+        # preview 模式不写历史，不计本地分数
+        topic_agent.finish_preview(topic_data["folder_path"])
+        print("\n🎉 新片速递发布成功，任务目录已归档。")
+    else:
+        print("\n❌ 新片速递发布失败，请检查发布服务日志。")
+
 def main():
     """
     🔀 小红书全自动运营主程序 (v4.0 路由版)
@@ -169,7 +243,10 @@ def main():
     # 读取 config 中的硬开关
     run_mode = getattr(getattr(config.Strategy, 'System', None), 'RUN_MODE', 'single')
 
-    if run_mode == "collection":
+    if run_mode == "preview":
+        print("🔀 [Router] 检测到 config 设置为【新片速递模式 (Preview)】，驶入预告赛道...")
+        run_preview_mode()
+    elif run_mode == "collection":
         print("🔀 [Router] 检测到 config 设置为【合集模式 (Collection)】，驶入合集赛道...")
         run_collection_mode()
     else:

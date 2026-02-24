@@ -15,8 +15,8 @@ class Strategy:
     
     class System:
         """[v4.0 新增] 系统运行模式与全局配置"""
-        # 运行模式选择: "single" (单片模式) 或 "collection" (合集盘点模式)
-        RUN_MODE: str = "collection" 
+        # 运行模式选择: "single" (单片模式) / "collection" (合集盘点模式) / "preview" (新片速递模式)
+        RUN_MODE: str = "preview" 
         
         # 本地分数兜底开关 (仅对合集模式有效)
         USE_LOCAL_SCORES: bool = True
@@ -116,6 +116,86 @@ class Strategy:
         # 建议保留换行符 \n 以确保与正文隔开
         PROGRESS_BAR_TEMPLATE: str = "\n📅 1000部电影推荐计划：{current}/{total}"
 
+    class Preview:
+        """[v5.0 新增] 新片速递模式配置 (Preview Mode)"""
+        # 子模式:
+        # - "landscape": 读取 资料/previews/landscape 下的任务，执行横图渲染+拼接发布
+        # - "poster": 读取 资料/previews/poster 下的任务，竖版海报按序直发(不做渲染)
+        # 建议:
+        # - 你提供横版剧照时用 landscape
+        # - 你提供竖版海报时用 poster
+        SUB_MODE: str = "landscape"
+
+        # ================= 文案展示策略 =================
+        # 说明：以下配置只影响 preview 模式，不会影响 single/collection。
+        # 是否展示“每部电影简介块”
+        # True: 会对简介做 55-80 字重写与强校验；任何一部不达标即熔断整夹
+        # False: 不展示简介块，同时不因简介缺失而熔断
+        SHOW_SUMMARY_BLOCK: bool = True
+
+        # 是否在正文末尾显示 CTA 引导语
+        # True: 显示 CTA_TEXT
+        # False: 不显示 CTA_TEXT
+        SHOW_CTA: bool = True
+
+        # CTA 文案内容 (SHOW_CTA=True 时生效)
+        CTA_TEXT: str = "欢迎大家在评论区留下你期待电影的名字～"
+
+        # ================= 外部检索预算(按单部电影计数) =================
+        # Serper 最多请求次数。
+        # 例如设为 5：每部电影最多向 Serper 发起 5 次搜索请求（达到后停止）。
+        # 次数越高，补齐信息机会越大，但 API 消耗更高。
+        SERPER_MAX_QUERIES_PER_MOVIE: int = 5
+
+        # Gemini(Google Grounding)最多兜底次数。
+        # 仅当“必填字段仍缺失”时才会触发 Gemini 补齐；建议 <=3 控成本。
+        GEMINI_MAX_GROUNDING_PER_MOVIE: int = 3
+
+        # ================= Serper 搜索白名单 =================
+        # 只保留这些域名的搜索结果，避免低质量来源污染信息。
+        # 注意：白名单用于“过滤结果质量”，不减少一次 Serper 请求本身的计费。
+        # 如需扩展来源，直接在列表中追加域名字符串即可。
+        SERPER_DOMAIN_WHITELIST: list[str] = [
+            "imdb.com",
+            "douban.com",
+            "boxofficemojo.com",
+            "the-numbers.com",
+            "deadline.com",
+            "variety.com",
+            "hollywoodreporter.com",
+            "youtube.com",
+        ]
+
+        # ================= 噱头文案约束 =================
+        # 噱头长度区间(单位: 字符)。超出范围会视为无效并触发重写/熔断。
+        # 你当前确认规则：最短 6，最长 22。
+        HOOK_MIN_LEN: int = 6
+        HOOK_MAX_LEN: int = 22
+
+        # 噱头禁用词。命中任一词视为无效噱头。
+        HOOK_FORBIDDEN_WORDS: list[str] = ["炸裂", "必看"]
+
+        # ================= 简介重写约束 =================
+        # 仅当 SHOW_SUMMARY_BLOCK=True 时生效。
+        # 简介必须落在 [SUMMARY_MIN_LEN, SUMMARY_MAX_LEN]，否则重写；
+        # 超过 SUMMARY_REWRITE_RETRIES 仍不达标时，熔断整夹并停止发布。
+        SUMMARY_MIN_LEN: int = 55
+        SUMMARY_MAX_LEN: int = 80
+        SUMMARY_REWRITE_RETRIES: int = 6
+
+        # ================= 预览模式图片发布策略 =================
+        # 仅 landscape 子模式生效。
+        # APPEND_RENDERED_DETAILS:
+        # - True: 在长图/余数图后，追加每部电影渲染后的 16:9 单图
+        # - False: 不追加渲染单图
+        APPEND_RENDERED_DETAILS: bool = False
+
+        # APPEND_ORIGINAL_IMAGES:
+        # - True: 在最后追加你放入任务文件夹的原图
+        # - False: 不追加原图
+        # 说明：poster 子模式本身就是直发原图，此开关仅影响 landscape 子模式。
+        APPEND_ORIGINAL_IMAGES: bool = True
+
 
 # ================= 路径配置 (定海神针) =================
 # 获取当前文件(config.py)所在的目录，即项目根目录
@@ -132,6 +212,16 @@ HISTORY_FILE = os.path.join(BASE_DIR, "history.json")
 
 # [v4.0 新增] 合集模式相关路径
 COLLECTION_DIR = os.path.join(BASE_DIR, "资料", "collections")
+
+# [v5.0 新增] 新片速递模式相关路径
+# PREVIEW_DIR: 新片速递根目录
+# PREVIEW_LANDSCAPE_DIR: landscape 子模式任务目录
+# PREVIEW_POSTER_DIR: poster 子模式任务目录
+# PREVIEW_DONE_DIR: 发布成功后的归档目录
+PREVIEW_DIR = os.path.join(BASE_DIR, "资料", "previews")
+PREVIEW_LANDSCAPE_DIR = os.path.join(PREVIEW_DIR, "landscape")
+PREVIEW_POSTER_DIR = os.path.join(PREVIEW_DIR, "poster")
+PREVIEW_DONE_DIR = os.path.join(PREVIEW_DIR, "_done")
 
 # [修改] 独立 score 文件夹，存放本地分数
 SCORE_DIR = os.path.join(BASE_DIR, "资料", "score")
@@ -157,6 +247,28 @@ if not os.path.exists(COLLECTION_DIR):
     except:
         pass
 
+# [v5.0 新增] 自动创建新片速递目录结构
+# 目录结构:
+# 资料/previews/
+#   ├─ landscape/   (横图任务)
+#   ├─ poster/      (竖海报任务)
+#   └─ _done/
+#      ├─ landscape/  (横图任务归档)
+#      └─ poster/     (竖海报任务归档)
+for _dir in [
+    PREVIEW_DIR,
+    PREVIEW_LANDSCAPE_DIR,
+    PREVIEW_POSTER_DIR,
+    PREVIEW_DONE_DIR,
+    os.path.join(PREVIEW_DONE_DIR, "landscape"),
+    os.path.join(PREVIEW_DONE_DIR, "poster"),
+]:
+    if not os.path.exists(_dir):
+        try:
+            os.makedirs(_dir, exist_ok=True)
+        except:
+            pass
+
 # [新增] 自动创建 score 存放目录及初始 JSON
 if not os.path.exists(SCORE_DIR):
     try:
@@ -172,13 +284,15 @@ if not os.path.exists(LOCAL_SCORES_FILE):
         pass
 
 # ================= API 密钥配置 =================
-# 必须在 .env 文件中配置这些 Key
+# 必须在 .env 文件中配置这些 Key（项目启动时会读取）
 LLM_API_KEY = os.getenv("LLM_API_KEY")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepseek.com")
-SEARCH_API_KEY = os.getenv("SEARCH_API_KEY") # Google Search / Serper
+SEARCH_API_KEY = os.getenv("SEARCH_API_KEY") # 搜索 API 兼容 Key (可作为 SERPER_API_KEY 备用)
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 OMDB_API_KEY = os.getenv("OMDB_API_KEY")     # [新增] OMDB Key (用于烂番茄/MTC分数)
-SERPER_API_KEY = os.getenv("SERPER_API_KEY") # [新增] Serper Key (用于搜索豆瓣分)
+SERPER_API_KEY = os.getenv("SERPER_API_KEY") # Serper 搜索 Key (preview 模式用于检索 IMDb/豆瓣/宣发信息)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") # Gemini Key (preview 模式用于 Google Grounding 兜底补齐字段)
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") # Gemini 模型名，默认 gemini-2.5-flash
 
 # 小红书 API 地址 (本地服务)
 API_BASE_URL = "http://localhost:18060/api/v1"

@@ -187,5 +187,41 @@
     "rotten_tomatoes": "N/A",
     "metacritic": "N/A",
     "douban": "8.3"
+  },
+  "天堂电影院": {
+    "imdb": "8.5",
+    "rotten_tomatoes": "90%",
+    "metacritic": "80",
+    "douban": "9.2"
+  },
+  "海上钢琴师": {
+    "imdb": "8.0",
+    "rotten_tomatoes": "58%",
+    "metacritic": "58",
+    "douban": "9.3"
+  },
+  "西西里的美丽传说": {
+    "imdb": "7.4",
+    "rotten_tomatoes": "54%",
+    "metacritic": "54",
+    "douban": "8.9"
+  },
+  "隐秘｜2006": {
+    "imdb": "7.4",
+    "rotten_tomatoes": "66%",
+    "metacritic": "56",
+    "douban": "8.0"
+  },
+  "天伦之旅": {
+    "imdb": "7.7",
+    "rotten_tomatoes": "67%",
+    "metacritic": "N/A",
+    "douban": "8.6"
+  },
+  "最佳出价": {
+    "imdb": "7.8",
+    "rotten_tomatoes": "56%",
+    "metacritic": "49",
+    "douban": "8.4"
   }
 }
