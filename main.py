@@ -88,8 +88,8 @@ def run_single_mode():
         return
 
     # === [关键] 人工标题审核 (Manual Review) ===
-    # 依据 config.Strategy.Writer.MANUAL_TITLE_REVIEW 开关决定是否暂停
-    if config.Strategy.Writer.MANUAL_TITLE_REVIEW:
+    # 依据 config.Strategy.Writer.SINGLE_MANUAL_TITLE_REVIEW 开关决定是否暂停
+    if config.Strategy.Writer.SINGLE_MANUAL_TITLE_REVIEW:
         print("\n" + "="*40)
         print(f"👮 [人工审核拦截] 当前标题: {note_data['title']}")
         print("="*40)
@@ -153,6 +153,17 @@ def run_collection_mode():
         
     # === Step 5: 执行发布 ===
     # [重构 板块7] 标签生成/长度验证已下沉至 CollectionWriterAgent._assemble_note()
+    if getattr(getattr(config.Strategy, 'Collection', None), 'COLLECTION_MANUAL_PUBLISH_REVIEW', False):
+        print("\n" + "="*40)
+        print("👮 [人工审核拦截] 当前模式: Collection")
+        print(f"   标题: {writer_data['note_data'].get('title', '')}")
+        print(f"   图片数: {len(final_images)}")
+        print("="*40)
+        user_input = input("   回车确认发布，输入 'q' 取消本次发布: ").strip()
+        if user_input.lower() == 'q':
+            print("   🚫 用户手动取消发布。")
+            return
+
     execution_agent = ExecutionAgent()
     success = execution_agent.run(writer_data['note_data'], final_images)
     
@@ -224,6 +235,17 @@ def run_preview_mode():
 
     # === Step 5: 发布 ===
     # 复用统一 ExecutionAgent 发布通道。
+    if getattr(getattr(config.Strategy, 'Preview', None), 'PREVIEW_MANUAL_PUBLISH_REVIEW', False):
+        print("\n" + "="*40)
+        print("👮 [人工审核拦截] 当前模式: Preview")
+        print(f"   标题: {writer_data['note_data'].get('title', '')}")
+        print(f"   图片数: {len(final_images)}")
+        print("="*40)
+        user_input = input("   回车确认发布，输入 'q' 取消本次发布: ").strip()
+        if user_input.lower() == 'q':
+            print("   🚫 用户手动取消发布。")
+            return
+
     execution_agent = ExecutionAgent()
     success = execution_agent.run(writer_data["note_data"], final_images)
 

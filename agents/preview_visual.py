@@ -47,13 +47,15 @@ class PreviewVisualAgent:
             # [样式迁移] 对齐你提供的新渲染方案：左下角自下而上堆叠。
             "bottom_layout": {
                 "margin_bottom": 20,  # 最底部安全边距：噱头文本距离画布底部的间隔
-                "gap_cn_sub": 20,  # 中文片名 与 噱头 之间的垂直间距
-                "gap_en_cn": 10,  # 英文原名 与 中文片名 之间的垂直间距
+                "right_margin": 60,  # 右侧安全边距：文本防溢出时的最大可用宽度预留
+                "gap_en_sub": 20,  # 英文原名+日期 与 噱头 之间的垂直间距
+                "gap_en_cn": 20,  # 英文原名 与 中文片名 之间的垂直间距
             },
-            # 英文原名样式（最上层）
+            # 英文原名样式（中间层）
             "title_en": {
                 "x": 80,  # 英文原名起始 X 坐标
-                "size": 75,  # 英文原名字号
+                "size": 80,  # 英文原名字号
+                "min_size": 20,  # 英文原名自适应缩放最小字号
                 "font_path": config.FONT_QUOTE_PATH,  # 英文原名字体
                 "text_color": "#FFFFFF",  # 主文字颜色
                 "stroke_width": 1,  # 文字描边宽度（提升暗背景可读性）
@@ -61,10 +63,11 @@ class PreviewVisualAgent:
                 "shadow_offset": (3, 3),  # 阴影偏移 (x, y)
                 "shadow_alpha": 180,  # 阴影透明度（0-255）
             },
-            # 中文片名样式（中间层，视觉权重最高）
+            # 中文片名样式（最上层，视觉权重最高）
             "title_cn": {
                 "x": 0,  # 中文片名起始 X 坐标 
                 "size": 110,  # 中文片名字号（主视觉）
+                "min_size": 30,  # 中文主标题自适应缩放最小字号
                 "font_path": config.FONT_TITLE_PATH,  # 中文片名字体
                 "text_color": "#FFFFFF",  # 主文字颜色
                 "stroke_width": 3,  # 文字描边宽度（主标题更粗）
@@ -76,6 +79,7 @@ class PreviewVisualAgent:
             "subtitle": {
                 "x": 80,  # 噱头起始 X 坐标
                 "size": 80,  # 噱头字号
+                "min_size": 22,  # 噱头自适应缩放最小字号
                 "font_path": config.FONT_SCORE_PATH,  # 噱头字体
                 "text_color": "#FFFFFF",  # 主文字颜色
                 "stroke_width": 2,  # 文字描边宽度
@@ -163,7 +167,7 @@ class PreviewVisualAgent:
     def _render_single_image(self, movie: dict) -> Image.Image | None:
         """
         渲染单张 16:9 图：
-        - 底部: 英文原名+日期 / 中文名 / 噱头（自下而上排版）
+        - 底部自下而上: 噱头 / 英文原名+日期 / 中文名
         """
         try:
             with Image.open(movie["path"]) as img:
@@ -174,7 +178,7 @@ class PreviewVisualAgent:
             draw = ImageDraw.Draw(canvas)
 
             # [样式迁移] 文本动态排版（从下往上）：
-            # 噱头(底) -> 中文名(中) -> 英文名+日期(上)。
+            # 噱头(底) -> 英文名+日期(中) -> 中文名(上)。
             bl = self.layout_config["bottom_layout"]
             text_en = str(movie.get("poster_title_en") or "").strip()
             text_cn = str(movie.get("poster_title_cn") or "").strip()
@@ -192,41 +196,49 @@ class PreviewVisualAgent:
             cfg_sub = self.layout_config["subtitle"]
             cfg_cn = self.layout_config["title_cn"]
             cfg_en = self.layout_config["title_en"]
-            font_sub = self._safe_load_font(cfg_sub["font_path"], cfg_sub["size"])
-            font_cn = self._safe_load_font(cfg_cn["font_path"], cfg_cn["size"])
-            font_en = self._safe_load_font(cfg_en["font_path"], cfg_en["size"])
+            right_margin = int(bl.get("right_margin", 60))
+            gap_en_sub = int(bl.get("gap_en_sub", bl.get("gap_cn_sub", 20)))
 
-            # [样式迁移] 与你新代码一致：先算底部噱头，再向上推中文，再向上推英文+日期。
+            # [样式迁移] 与你新代码一致：先算底部噱头，再向上推英文+日期，再向上推中文。
             y_sub = y_cn = y_en = None
+            cfg_sub_dynamic = cfg_sub
+            cfg_en_dynamic = cfg_en
+            cfg_cn_dynamic = cfg_cn
 
             if text_hook:
-                h_sub = self._text_height(draw, text_hook, font_sub)
+                cfg_sub_dynamic, h_sub = self._fit_text_size_within_width(
+                    draw, text_hook, cfg_sub, right_margin, "噱头"
+                )
                 y_sub = 1080 - bl["margin_bottom"] - h_sub
 
-            if text_cn:
-                h_cn = self._text_height(draw, text_cn, font_cn)
-                if y_sub is not None:
-                    y_cn = y_sub - bl["gap_cn_sub"] - h_cn
-                else:
-                    # 噱头缺失时，中文名直接落到最底部安全线，避免整块上浮过高。
-                    y_cn = 1080 - bl["margin_bottom"] - h_cn
-
             if merged_title_en:
-                h_en = self._text_height(draw, merged_title_en, font_en)
-                if y_cn is not None:
-                    y_en = y_cn - bl["gap_en_cn"] - h_en
-                elif y_sub is not None:
-                    y_en = y_sub - bl["gap_en_cn"] - h_en
+                cfg_en_dynamic, h_en = self._fit_text_size_within_width(
+                    draw, merged_title_en, cfg_en, right_margin, "英文名+日期"
+                )
+                if y_sub is not None:
+                    y_en = y_sub - gap_en_sub - h_en
                 else:
                     # 仅英文/日期时，保持贴近底部显示，避免空画面。
                     y_en = 1080 - bl["margin_bottom"] - h_en
 
+            if text_cn:
+                cfg_cn_dynamic, h_cn = self._fit_text_size_within_width(
+                    draw, text_cn, cfg_cn, right_margin, "中文名"
+                )
+                if y_en is not None:
+                    y_cn = y_en - bl["gap_en_cn"] - h_cn
+                elif y_sub is not None:
+                    y_cn = y_sub - bl["gap_en_cn"] - h_cn
+                else:
+                    # 仅中文名时，落到最底部安全线，避免空画面。
+                    y_cn = 1080 - bl["margin_bottom"] - h_cn
+
             if text_hook and y_sub is not None:
-                self._render_text_element(canvas, draw, text_hook, cfg_sub, y_sub)
-            if text_cn and y_cn is not None:
-                self._render_text_element(canvas, draw, text_cn, cfg_cn, y_cn)
+                self._render_text_element(canvas, draw, text_hook, cfg_sub_dynamic, y_sub)
             if merged_title_en and y_en is not None:
-                self._render_text_element(canvas, draw, merged_title_en, cfg_en, y_en)
+                self._render_text_element(canvas, draw, merged_title_en, cfg_en_dynamic, y_en)
+            if text_cn and y_cn is not None:
+                self._render_text_element(canvas, draw, text_cn, cfg_cn_dynamic, y_cn)
 
             return canvas
         except Exception as e:
@@ -318,6 +330,52 @@ class PreviewVisualAgent:
         """获取单行文本像素高度，用于自下而上排版计算。"""
         bbox = draw.textbbox((0, 0), text, font=font, anchor="lt")
         return bbox[3] - bbox[1]
+
+    def _fit_text_size_within_width(
+        self,
+        draw: ImageDraw,
+        text: str,
+        cfg: dict,
+        right_margin: int,
+        label: str,
+    ) -> tuple[dict, int]:
+        """
+        单行文本自适应缩放：
+        - 按右侧安全边距计算最大可用宽度
+        - 超宽时递减字号
+        - 若降到最小字号仍超宽则报错熔断
+        """
+        text_val = str(text or "").strip()
+        if not text_val:
+            return cfg, 0
+
+        dynamic_cfg = cfg.copy()
+        x = int(dynamic_cfg.get("x", 0))
+        max_width = 1920 - x - int(right_margin)
+        if max_width <= 0:
+            raise ValueError(f"{label} 可用宽度非法: max_width={max_width}")
+
+        current_size = int(dynamic_cfg.get("size", 20))
+        min_size = int(dynamic_cfg.get("min_size", 12))
+        if min_size > current_size:
+            min_size = current_size
+
+        while True:
+            font = self._safe_load_font(dynamic_cfg["font_path"], current_size)
+            bbox = draw.textbbox((0, 0), text_val, font=font, anchor="lt")
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+
+            if text_width <= max_width:
+                dynamic_cfg["size"] = current_size
+                return dynamic_cfg, text_height
+
+            if current_size <= min_size:
+                raise ValueError(
+                    f"{label} 超出安全宽度: width={text_width}, max={max_width}, min_size={min_size}, text={text_val}"
+                )
+
+            current_size -= 2
 
     def _merge_title_en_and_date(self, title_en: str, date_text: str) -> str:
         """

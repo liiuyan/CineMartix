@@ -32,6 +32,9 @@ class PreviewMetaFetcher:
         self.max_gemini_grounding = max(
             0, int(getattr(config.Strategy.Preview, "GEMINI_MAX_GROUNDING_PER_MOVIE", 3))
         )
+        self.gemini_hook_attempts = max(
+            0, int(getattr(config.Strategy.Preview, "GEMINI_HOOK_ATTEMPTS", 1))
+        )
         self.show_summary_block = bool(
             getattr(config.Strategy.Preview, "SHOW_SUMMARY_BLOCK", True)
         )
@@ -80,7 +83,7 @@ class PreviewMetaFetcher:
         """
         单片采集总流程（按成本从低到高）:
         1) TMDB 结构化数据
-        2) Serper 片段 + LLM抽取
+        2) Serper 片段 + LLM抽取（满足“硬必填+类型”即提前停止）
         3) Gemini Grounding 兜底
         4) 缺噱头时再生成噱头
         5) 标准化 + 规则校验（不合格抛异常）
@@ -113,27 +116,41 @@ class PreviewMetaFetcher:
         self._merge_missing(result, tmdb_data)
 
         # 2) Serper 搜索补齐：先用便宜通道补缺。
-        snippets = self._collect_serper_snippets(name, lock_original_title)
-        if snippets:
-            serper_fields = self._extract_from_snippets_with_llm(name, snippets)
-            self._merge_missing(result, serper_fields)
+        snippets = self._collect_serper_snippets(name, lock_original_title, result=result)
 
         # 3) Gemini Grounding 最终兜底：仅在仍有必填缺失时触发。
         if self.max_gemini_grounding > 0 and self.gemini_key:
             attempts = 0
             while attempts < self.max_gemini_grounding:
                 missing = self._collect_required_missing(result, lock_original_title)
-                if not missing:
+                # [策略] Gemini 仅补“硬必填”；hook 由后续 _generate_hookline 独立兜底。
+                hard_missing = [x for x in missing if x != "hook"]
+                if not hard_missing:
                     break
                 attempts += 1
                 print(
-                    f"      🌐 [Gemini] 第 {attempts}/{self.max_gemini_grounding} 次联网补齐: 缺 {', '.join(missing)}"
+                    f"      🌐 [Gemini] 第 {attempts}/{self.max_gemini_grounding} 次联网补齐: 缺 {', '.join(hard_missing)}"
                 )
                 gemini_fields = self._fetch_with_gemini(name, lock_original_title, result)
                 self._merge_missing(result, gemini_fields)
 
+        # 3.5) Gemini 专项补写噱头（非熔断路径）
+        # 仅在 hook 仍无效时触发，失败不熔断，后续继续走本地兜底生成。
+        if self.gemini_hook_attempts > 0 and self.gemini_key and (not self._normalize_hook(result.get("hook", ""))):
+            for attempt in range(1, self.gemini_hook_attempts + 1):
+                print(
+                    f"      🌐 [Gemini-Hook] 第 {attempt}/{self.gemini_hook_attempts} 次尝试补写噱头..."
+                )
+                gemini_fields = self._fetch_with_gemini(name, lock_original_title, result)
+                self._merge_missing(result, gemini_fields)
+                if self._normalize_hook(result.get("hook", "")):
+                    print("      ✅ [Gemini-Hook] 噱头补写成功。")
+                    break
+            if not self._normalize_hook(result.get("hook", "")):
+                print("      ⚠️ [Gemini-Hook] 补写未命中，将转入本地噱头兜底生成。")
+
         # 4) 噱头兜底：前面渠道都没有产出可用噱头时再生成。
-        if not result.get("hook"):
+        if not self._normalize_hook(result.get("hook", "")):
             result["hook"] = self._generate_hookline(result, snippets)
 
         # 5) 标准化：将“多源异构格式”统一成发布可用格式。
@@ -290,25 +307,47 @@ class PreviewMetaFetcher:
                 return date, self._normalize_region_name(code)
         return "", ""
 
-    def _collect_serper_snippets(self, movie_name: str, lock_original_title: str | None) -> list:
-        """执行 Serper 搜索并做域名白名单过滤，返回可用于抽取的片段列表。"""
+    def _collect_serper_snippets(
+        self,
+        movie_name: str,
+        lock_original_title: str | None,
+        result: dict | None = None,
+    ) -> list:
+        """
+        执行 Serper 搜索并做域名白名单过滤，返回可用于抽取的片段列表。
+
+        当传入 result 时：
+        - 每次查询后都会尝试抽取并合并字段；
+        - 若满足“硬必填(不含hook)+genres已收集”则提前停止；
+        - genres 缺失不会熔断，只打印告警继续后续流程。
+        """
         if not self.serper_key or self.max_serper_queries <= 0:
             return []
 
         queries = self._build_serper_queries(movie_name, lock_original_title)
         snippets = []
         used = 0
+        genres_source = "TMDB" if result and self._has_collected_genres(result) else ""
+
+        # 若 TMDB 阶段已满足“硬必填 + 类型”，直接跳过 Serper 以节省请求预算。
+        if result is not None:
+            hard_missing = self._collect_hard_missing_for_serper(result, lock_original_title)
+            if not hard_missing and self._has_collected_genres(result):
+                print("      ✅ [Serper] TMDB 已满足“硬必填+类型”，跳过 Serper 搜索。")
+                return []
 
         for query in queries:
             if used >= self.max_serper_queries:
                 break
             used += 1
             data = self._call_serper(query)
+            new_snippets = []
+
             for item in data.get("organic", []):
                 link = item.get("link", "")
                 if not self._domain_allowed(link):
                     continue
-                snippets.append(
+                new_snippets.append(
                     {
                         "title": item.get("title", ""),
                         "snippet": item.get("snippet", ""),
@@ -316,9 +355,55 @@ class PreviewMetaFetcher:
                     }
                 )
 
+            if new_snippets:
+                snippets.extend(new_snippets)
+
+            # 增量抽取：每轮查询后都更新一次 result，以便触发“收齐即停”。
+            if result is not None and snippets:
+                had_genres_before = self._has_collected_genres(result)
+                serper_fields = self._extract_from_snippets_with_llm(movie_name, snippets)
+                self._merge_missing(result, serper_fields)
+                has_genres_now = self._has_collected_genres(result)
+                if (not had_genres_before) and has_genres_now and not genres_source:
+                    genres_source = "Serper"
+
+                hard_missing = self._collect_hard_missing_for_serper(result, lock_original_title)
+                missing_str = "无" if not hard_missing else "、".join(hard_missing)
+                genre_str = f"已就绪({genres_source or 'TMDB/Serper'})" if has_genres_now else "缺失"
+                print(
+                    f"      🔎 [Serper] 第 {used}/{self.max_serper_queries} 次后: "
+                    f"硬必填缺失={missing_str} | 类型={genre_str}"
+                )
+
+                if not hard_missing and has_genres_now:
+                    print(
+                        f"      ✅ [Serper] 提前停止：第 {used}/{self.max_serper_queries} 次已满足“硬必填+类型”。"
+                    )
+                    break
+
         if snippets:
             print(f"      🔎 [Serper] 命中片段 {len(snippets)} 条")
+
+        if result is not None and (not self._has_collected_genres(result)):
+            print(
+                f"      ⚠️ [Serper] 已达搜索上限 {used}/{self.max_serper_queries}，"
+                f"电影类型仍缺失（非致命，继续流程）。"
+            )
+
         return snippets
+
+    def _collect_hard_missing_for_serper(self, movie: dict, lock_original_title: str | None) -> list:
+        """
+        Serper 提前停止判定使用的“硬必填”：
+        - 基于统一必填规则
+        - 排除 hook（噱头后续有独立补写链路）
+        """
+        missing = self._collect_required_missing(movie, lock_original_title)
+        return [x for x in missing if x != "hook"]
+
+    def _has_collected_genres(self, movie: dict) -> bool:
+        """判断电影类型是否已收集到有效值。"""
+        return bool(str(movie.get("genres") or "").strip())
 
     def _build_serper_queries(self, movie_name: str, lock_original_title: str | None) -> list:
         """构建 Serper 查询模板（尽量覆盖上映、演职员、简介等字段）。"""

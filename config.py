@@ -76,7 +76,7 @@ class Strategy:
         # [本次新增] 是否开启人工标题审核模式
         # True: 程序会在发布前暂停 (input阻塞)，等待用户在终端确认或修改标题。
         # False: 全自动模式，完全信任 AI，适合无人值守运行。
-        MANUAL_TITLE_REVIEW: bool = True
+        SINGLE_MANUAL_TITLE_REVIEW: bool = True
         
         # [本次新增] 标题 Emoji 开关
         # True: 允许标题包含 Emoji (如 "🎬 教父")
@@ -116,6 +116,11 @@ class Strategy:
         # 建议保留换行符 \n 以确保与正文隔开
         PROGRESS_BAR_TEMPLATE: str = "\n📅 1000部电影推荐计划：{current}/{total}"
 
+    class Collection:
+        """[v6.0 新增] 合集模式发布前人工确认开关"""
+        # True: 发布前暂停，等待终端确认；False: 全自动直发
+        COLLECTION_MANUAL_PUBLISH_REVIEW: bool = False
+
     class Preview:
         """[v5.0 新增] 新片速递模式配置 (Preview Mode)"""
         # 子模式:
@@ -151,6 +156,11 @@ class Strategy:
         # 仅当“必填字段仍缺失”时才会触发 Gemini 补齐；建议 <=3 控成本。
         GEMINI_MAX_GROUNDING_PER_MOVIE: int = 3
 
+        # Gemini 噱头补写尝试次数（独立于硬必填补齐）。
+        # 触发时机：硬必填补齐流程结束后，若 hook 仍无效则执行。
+        # 说明：补写失败不会熔断，后续仍会走本地噱头兜底生成与 Writer 校验重写链路。
+        GEMINI_HOOK_ATTEMPTS: int = 1
+
         # ================= Serper 搜索白名单 =================
         # 只保留这些域名的搜索结果，避免低质量来源污染信息。
         # 注意：白名单用于“过滤结果质量”，不减少一次 Serper 请求本身的计费。
@@ -180,7 +190,7 @@ class Strategy:
         # 简介必须落在 [SUMMARY_MIN_LEN, SUMMARY_MAX_LEN]，否则重写；
         # 超过 SUMMARY_REWRITE_RETRIES 仍不达标时，熔断整夹并停止发布。
         SUMMARY_MIN_LEN: int = 55
-        SUMMARY_MAX_LEN: int = 80
+        SUMMARY_MAX_LEN: int = 100
         SUMMARY_REWRITE_RETRIES: int = 6
 
         # ================= 预览模式图片发布策略 =================
@@ -195,6 +205,10 @@ class Strategy:
         # - False: 不追加原图
         # 说明：poster 子模式本身就是直发原图，此开关仅影响 landscape 子模式。
         APPEND_ORIGINAL_IMAGES: bool = True
+
+        # ================= 发布前人工确认 =================
+        # True: 发布前暂停，等待终端确认；False: 全自动直发
+        PREVIEW_MANUAL_PUBLISH_REVIEW: bool = False
 
 
 # ================= 路径配置 (定海神针) =================

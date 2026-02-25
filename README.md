@@ -126,7 +126,7 @@ GEMINI_MODEL=gemini-2.5-flash
 说明：
 
 - 豆瓣/搜索链路优先使用 `SERPER_API_KEY`，未配置时回退 `SEARCH_API_KEY`。
-- preview 的 Gemini 兜底仅在 `GEMINI_API_KEY` 存在且配置次数 > 0 时触发。
+- preview 的 Gemini 硬必填兜底仅在 `GEMINI_API_KEY` 存在且 `GEMINI_MAX_GROUNDING_PER_MOVIE > 0` 时触发；噱头专项尝试由 `GEMINI_HOOK_ATTEMPTS` 控制。
 - 发布服务地址固定在 `config.py`：`http://localhost:18060/api/v1`。
 
 ### 4. 选择运行模式
@@ -270,8 +270,27 @@ preview 还分两种子模式：
 `PreviewMetaFetcher` 采集顺序：
 
 1. TMDB
-2. Serper（白名单过滤）
-3. Gemini Grounding（仅在必填缺失时触发）
+2. Serper（白名单过滤，逐次补齐；满足“硬必填(不含噱头)+电影类型”会提前停止，最多 `SERPER_MAX_QUERIES_PER_MOVIE` 次）
+3. Gemini Grounding（补硬必填；可按 `GEMINI_HOOK_ATTEMPTS` 进行噱头专项尝试）
+
+#### 单片采集决策流程（重点）
+
+以下逻辑按“每一部电影”独立执行：
+
+1. 先走 TMDB 主通道拿结构化字段（上映日期、类型、地区、演职员、简介等）。
+2. 若 TMDB 已满足“硬必填(不含噱头) + `genres`”，则直接跳过 Serper。
+3. 否则进入 Serper 循环（最多 `SERPER_MAX_QUERIES_PER_MOVIE` 次）：
+   - 每次查询后都会增量抽取并回填字段。
+   - 每次都会打印当前“硬必填缺失 + 类型状态”日志。
+   - 一旦满足“硬必填(不含噱头) + `genres`”，立刻提前停止，不再跑满预算。
+4. 若 Serper 到上限后 `genres` 仍缺失，只告警，不熔断（类型是“尽量收集”字段）。
+5. 进入 Gemini 硬必填兜底循环（最多 `GEMINI_MAX_GROUNDING_PER_MOVIE` 次）：
+   - 仅针对硬必填字段补齐。
+   - 不会因为 `hook` 缺失而继续该循环。
+6. 若 `hook` 仍无效，则执行 Gemini 噱头专项尝试（最多 `GEMINI_HOOK_ATTEMPTS` 次）。
+7. 若噱头仍无效，再执行本地 `_generate_hookline()` 兜底生成。
+8. 进入 Writer 阶段后，`_ensure_hook()` 还会做最终合规校验与最多 3 次重写。
+9. 最终必填校验仍是严格的：`hook` 必须可用，否则整夹熔断。
 
 必填规则（当前实现）：
 
@@ -280,6 +299,7 @@ preview 还分两种子模式：
 - 噱头必须有
 - 非中国电影原名必须有（中国电影原名可空）
 - 当 `SHOW_SUMMARY_BLOCK=True` 时简介必须有
+- 电影类型（`genres`）会尽量收集，但缺失不会触发熔断
 
 上映日期优先级：正式院线优先（`type=3 > type=2 > type=1`，每档取最早日期）。
 
@@ -287,6 +307,10 @@ preview 还分两种子模式：
 
 - 标题 `<=20`
 - 正文结构：片单 +（可选简介块）+（可选CTA）
+- 当 `SHOW_SUMMARY_BLOCK=True` 时，简介会严格改写到 `SUMMARY_MIN_LEN ~ SUMMARY_MAX_LEN`：
+  - 不达标时会按“偏短/偏长”给出定向重写指令（更长或更短）
+  - 每轮都基于原始查询到的简介事实改写（不基于上一轮 AI 文本扩写/缩写）
+  - 日志会打印每轮实际字数与尝试次数
 - 标签固定前三个：`新片速递`、`红书宝藏片单`、`电影推荐`
 - 再追加前 3 部电影名清洗后的 tags
 - `正文 + tags <= 990`
@@ -296,7 +320,12 @@ preview 还分两种子模式：
 #### `landscape`
 
 - 非 16:9 会居中裁剪到 16:9
-- 渲染日期/原名/中文名/噱头
+- 左下角自下而上渲染：`噱头 -> 原名与日期 -> 中文名`（从上到下即：中文名、原名与日期、噱头）
+- 中文名 / 原名与日期 / 噱头均支持单行自适应缩放；若缩到最小字号仍超宽会触发渲染报错（熔断）
+- 原名与日期合并规则：
+  - 原名+日期都有：`原名 | 日期`
+  - 仅原名：`原名`
+  - 仅日期：`日期`（不会出现前导 `|2026.xx.xx`）
 - 每 3 张拼接一张 16:27
 - 可配置是否追加渲染单图、原图
 
@@ -336,7 +365,7 @@ class Strategy:
         DETAIL_IMAGE_TYPE = "original"   # original / rendered
 
     class Writer:
-        MANUAL_TITLE_REVIEW = True
+        SINGLE_MANUAL_TITLE_REVIEW = True
         ENABLE_TITLE_EMOJI = True
 
         SHOW_YEAR = False
@@ -352,6 +381,9 @@ class Strategy:
         COLLECTION_SUMMARY_MIN_LEN = 55
         COLLECTION_SUMMARY_MAX_LEN = 80
         COLLECTION_SUMMARY_REWRITE_RETRIES = 3
+
+    class Collection:
+        COLLECTION_MANUAL_PUBLISH_REVIEW = False
 ```
 
 ### 3) preview 专属配置
@@ -367,6 +399,7 @@ class Strategy:
 
         SERPER_MAX_QUERIES_PER_MOVIE = 5
         GEMINI_MAX_GROUNDING_PER_MOVIE = 3
+        GEMINI_HOOK_ATTEMPTS = 1
         SERPER_DOMAIN_WHITELIST = ["imdb.com", "douban.com", ...]
 
         HOOK_MIN_LEN = 6
@@ -379,6 +412,7 @@ class Strategy:
 
         APPEND_RENDERED_DETAILS = False
         APPEND_ORIGINAL_IMAGES = True
+        PREVIEW_MANUAL_PUBLISH_REVIEW = False
 ```
 
 ---
@@ -414,11 +448,13 @@ class Strategy:
 ### 2. preview 简介改写反复失败
 
 - 默认要求严格命中长度区间（例如 55-80）
+- 日志会输出每轮实际字数，并提示下一轮“写更长”或“写更短”
 - 可调小区间或调大 `SUMMARY_REWRITE_RETRIES`
 - 或关闭 `SHOW_SUMMARY_BLOCK`
 
 ### 3. 程序卡在终端等待输入
 
-- `MANUAL_TITLE_REVIEW=True` 时会进行人工标题审核
+- `SINGLE_MANUAL_TITLE_REVIEW=True` 时会进行人工标题审核
+- `COLLECTION_MANUAL_PUBLISH_REVIEW=True` 时，合集发布前会暂停等待确认（回车发布，`q` 取消）
+- `PREVIEW_MANUAL_PUBLISH_REVIEW=True` 时，新片速递发布前会暂停等待确认（回车发布，`q` 取消）
 - 无人值守时请设为 `False`
-
