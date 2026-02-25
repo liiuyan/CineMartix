@@ -16,8 +16,13 @@ class Strategy:
     class System:
         """[v4.0 新增] 系统运行模式与全局配置"""
         # 运行模式选择: "single" (单片模式) / "collection" (合集盘点模式) / "preview" (新片速递模式)
-        RUN_MODE: str = "preview" 
+        RUN_MODE: str = "collection" 
         
+        # [新增] 发布前决策菜单总开关
+        # True: 启用发布前菜单（single=4选项，collection/preview=3选项）
+        # False: 直接立即发布（不弹菜单）
+        ENABLE_PUBLISH_DECISION_MENU: bool = True
+
         # 本地分数兜底开关 (仅对合集模式有效)
         USE_LOCAL_SCORES: bool = True
 
@@ -73,11 +78,6 @@ class Strategy:
         # 用于将 TMDB 的美元票房 (Revenue) 折算为人民币，仅用于文案展示估算。
         USD_TO_CNY_RATE: int = 7
 
-        # [本次新增] 是否开启人工标题审核模式
-        # True: 程序会在发布前暂停 (input阻塞)，等待用户在终端确认或修改标题。
-        # False: 全自动模式，完全信任 AI，适合无人值守运行。
-        SINGLE_MANUAL_TITLE_REVIEW: bool = True
-        
         # [本次新增] 标题 Emoji 开关
         # True: 允许标题包含 Emoji (如 "🎬 教父")
         # False: 标题必须是纯文字 (如 "教父：黑帮史诗")，且降级策略中不包含删除 Emoji 步骤。
@@ -108,6 +108,11 @@ class Strategy:
         COLLECTION_SUMMARY_MAX_LEN: int = 80
         COLLECTION_SUMMARY_REWRITE_RETRIES: int = 3
 
+        # [新增] mode_one 的主题发散字数控制 (仅 collection 模式使用)
+        # 不在该区间会触发重写
+        COLLECTION_DIVERGENT_MIN_LEN: int = 250
+        COLLECTION_DIVERGENT_MAX_LEN: int = 600
+
         # [新增] 1000部阅片计划配置
         # 计划总目标
         PROJECT_TOTAL_COUNT: int = 1000
@@ -115,11 +120,6 @@ class Strategy:
         # 变量: {current}代表当前第几部, {total}代表总数
         # 建议保留换行符 \n 以确保与正文隔开
         PROGRESS_BAR_TEMPLATE: str = "\n📅 1000部电影推荐计划：{current}/{total}"
-
-    class Collection:
-        """[v6.0 新增] 合集模式发布前人工确认开关"""
-        # True: 发布前暂停，等待终端确认；False: 全自动直发
-        COLLECTION_MANUAL_PUBLISH_REVIEW: bool = False
 
     class Preview:
         """[v5.0 新增] 新片速递模式配置 (Preview Mode)"""
@@ -205,11 +205,6 @@ class Strategy:
         # - False: 不追加原图
         # 说明：poster 子模式本身就是直发原图，此开关仅影响 landscape 子模式。
         APPEND_ORIGINAL_IMAGES: bool = True
-
-        # ================= 发布前人工确认 =================
-        # True: 发布前暂停，等待终端确认；False: 全自动直发
-        PREVIEW_MANUAL_PUBLISH_REVIEW: bool = False
-
 
 # ================= 路径配置 (定海神针) =================
 # 获取当前文件(config.py)所在的目录，即项目根目录

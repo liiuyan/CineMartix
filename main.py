@@ -87,26 +87,15 @@ def run_single_mode():
         print("❌ 视觉素材不足 (未找到封面或人工素材缺失)，终止流程。")
         return
 
-    # === [关键] 人工标题审核 (Manual Review) ===
-    # 依据 config.Strategy.Writer.SINGLE_MANUAL_TITLE_REVIEW 开关决定是否暂停
-    if config.Strategy.Writer.SINGLE_MANUAL_TITLE_REVIEW:
-        print("\n" + "="*40)
-        print(f"👮 [人工审核拦截] 当前标题: {note_data['title']}")
-        print("="*40)
-        user_input = input("   回车确认发布，或输入新标题进行修改 (输入 'q' 弃单): ").strip()
-        
-        if user_input.lower() == 'q':
-            print("   🚫 用户手动取消发布。")
-            return
-        elif user_input:
-            note_data['title'] = user_input
-            print(f"   ✅ 标题已修改为: {note_data['title']}")
-
     # === Step 5: 执行发布 (Execution) ===
     execution_agent = ExecutionAgent()
-    success = execution_agent.run(note_data, image_paths)
+    success = execution_agent.run(note_data, image_paths, run_mode="single")
     
     # === 收尾: 记录历史 & 清理待办 ===
+    if success is None:
+        print("\n🚫 已放弃发布，本次任务未入历史且不清理待办。")
+        return
+
     if success:
         history = HistoryManager()
         # [修改] 增加 mode="single" 标签
@@ -153,21 +142,14 @@ def run_collection_mode():
         
     # === Step 5: 执行发布 ===
     # [重构 板块7] 标签生成/长度验证已下沉至 CollectionWriterAgent._assemble_note()
-    if getattr(getattr(config.Strategy, 'Collection', None), 'COLLECTION_MANUAL_PUBLISH_REVIEW', False):
-        print("\n" + "="*40)
-        print("👮 [人工审核拦截] 当前模式: Collection")
-        print(f"   标题: {writer_data['note_data'].get('title', '')}")
-        print(f"   图片数: {len(final_images)}")
-        print("="*40)
-        user_input = input("   回车确认发布，输入 'q' 取消本次发布: ").strip()
-        if user_input.lower() == 'q':
-            print("   🚫 用户手动取消发布。")
-            return
-
     execution_agent = ExecutionAgent()
-    success = execution_agent.run(writer_data['note_data'], final_images)
+    success = execution_agent.run(writer_data['note_data'], final_images, run_mode="collection")
     
     # === Step 6: 完美归档 ===
+    if success is None:
+        print("\n🚫 已放弃发布，合集任务保持原样。")
+        return
+
     if success:
         # [新增] 将合集中的电影全部写入历史字典，打上 collection 标签
         history = HistoryManager()
@@ -235,22 +217,15 @@ def run_preview_mode():
 
     # === Step 5: 发布 ===
     # 复用统一 ExecutionAgent 发布通道。
-    if getattr(getattr(config.Strategy, 'Preview', None), 'PREVIEW_MANUAL_PUBLISH_REVIEW', False):
-        print("\n" + "="*40)
-        print("👮 [人工审核拦截] 当前模式: Preview")
-        print(f"   标题: {writer_data['note_data'].get('title', '')}")
-        print(f"   图片数: {len(final_images)}")
-        print("="*40)
-        user_input = input("   回车确认发布，输入 'q' 取消本次发布: ").strip()
-        if user_input.lower() == 'q':
-            print("   🚫 用户手动取消发布。")
-            return
-
     execution_agent = ExecutionAgent()
-    success = execution_agent.run(writer_data["note_data"], final_images)
+    success = execution_agent.run(writer_data["note_data"], final_images, run_mode="preview")
 
     # === Step 6: 归档 ===
     # 仅发布成功后归档；preview 不写 history。
+    if success is None:
+        print("\n🚫 已放弃发布，预告任务保持原样。")
+        return
+
     if success:
         # preview 模式不写历史，不计本地分数
         topic_agent.finish_preview(topic_data["folder_path"])

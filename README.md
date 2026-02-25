@@ -18,7 +18,7 @@ CineMatrix 采用 Agent 分工架构，当前支持三条业务赛道：
 - 元数据：TMDB / OMDB / Serper / Gemini（preview 兜底）
 - 文案：结构化生成 + 长度熔断 + 标签组装
 - 视觉：人工素材优先 / 渲染拼接 / CLIP 去重
-- 发布：本地发布服务调用 + 成功后原子收尾
+- 发布：本地发布服务调用 + 发布前决策菜单（放弃/立即/定时）+ 成功后原子收尾
 
 ---
 
@@ -223,6 +223,7 @@ python3 main.py
 校验点：
 
 - `mode_two` 简介长度严格校验（配置区间，默认 55-80）
+- `mode_one` 发散段严格校验（配置区间，默认 250-600；超出区间会重写）
 - 标题 `<=20`
 - `正文 + tags <= 990`
 
@@ -342,6 +343,37 @@ preview 还分两种子模式：
 
 ---
 
+## 四、发布前决策菜单（全模式）
+
+由 `Strategy.System.ENABLE_PUBLISH_DECISION_MENU` 控制：
+
+- `True`：发布前弹菜单
+- `False`：不弹菜单，直接立即发布
+
+菜单行为：
+
+- `single`：4 选项
+  1) 放弃发布  
+  2) 修改标题后发布  
+  3) 立即发布  
+  4) 定时发布
+- `collection` / `preview`：3 选项
+  1) 放弃发布  
+  2) 立即发布  
+  3) 定时发布
+
+定时发布时间输入规则：
+
+- 必须是 ISO8601 且包含时区（例如 `2026-02-26T21:30:00+08:00`）
+- 必须晚于当前时间
+
+收尾规则：
+
+- 选择“放弃发布”时，任务不会进入成功收尾（不写历史、不删 pending、不归档）
+- 非交互环境（无 TTY）会自动走“立即发布”
+
+---
+
 ## ⚙️ 关键配置速查
 
 ### 1) 系统模式
@@ -350,6 +382,7 @@ preview 还分两种子模式：
 class Strategy:
     class System:
         RUN_MODE = "single"          # single / collection / preview
+        ENABLE_PUBLISH_DECISION_MENU = True  # 发布前菜单总开关
         USE_LOCAL_SCORES = True       # 仅合集模式有效
 ```
 
@@ -365,7 +398,6 @@ class Strategy:
         DETAIL_IMAGE_TYPE = "original"   # original / rendered
 
     class Writer:
-        SINGLE_MANUAL_TITLE_REVIEW = True
         ENABLE_TITLE_EMOJI = True
 
         SHOW_YEAR = False
@@ -381,9 +413,8 @@ class Strategy:
         COLLECTION_SUMMARY_MIN_LEN = 55
         COLLECTION_SUMMARY_MAX_LEN = 80
         COLLECTION_SUMMARY_REWRITE_RETRIES = 3
-
-    class Collection:
-        COLLECTION_MANUAL_PUBLISH_REVIEW = False
+        COLLECTION_DIVERGENT_MIN_LEN = 250
+        COLLECTION_DIVERGENT_MAX_LEN = 600
 ```
 
 ### 3) preview 专属配置
@@ -407,12 +438,11 @@ class Strategy:
         HOOK_FORBIDDEN_WORDS = ["炸裂", "必看"]
 
         SUMMARY_MIN_LEN = 55
-        SUMMARY_MAX_LEN = 80
+        SUMMARY_MAX_LEN = 100
         SUMMARY_REWRITE_RETRIES = 6
 
         APPEND_RENDERED_DETAILS = False
         APPEND_ORIGINAL_IMAGES = True
-        PREVIEW_MANUAL_PUBLISH_REVIEW = False
 ```
 
 ---
@@ -454,7 +484,7 @@ class Strategy:
 
 ### 3. 程序卡在终端等待输入
 
-- `SINGLE_MANUAL_TITLE_REVIEW=True` 时会进行人工标题审核
-- `COLLECTION_MANUAL_PUBLISH_REVIEW=True` 时，合集发布前会暂停等待确认（回车发布，`q` 取消）
-- `PREVIEW_MANUAL_PUBLISH_REVIEW=True` 时，新片速递发布前会暂停等待确认（回车发布，`q` 取消）
-- 无人值守时请设为 `False`
+- `ENABLE_PUBLISH_DECISION_MENU=True` 时，发布前会弹出决策菜单
+- `single` 下会出现 4 选项（放弃 / 改标题后发 / 立即 / 定时）
+- `collection` 与 `preview` 下会出现 3 选项（放弃 / 立即 / 定时）
+- 无人值守可设 `ENABLE_PUBLISH_DECISION_MENU=False`；非交互环境也会自动立即发布

@@ -43,6 +43,12 @@ class CollectionWriterAgent:
         """
         print(f"\n✍️ [3/5 CollectionWriterAgent] 正在呼叫 DeepSeek 批量撰写文案...")
         print(f"   📝 探讨主题: 【{theme}】 | 涉及电影数: {len(movies)} 部")
+        divergent_min_len = int(getattr(config.Strategy.Writer, 'COLLECTION_DIVERGENT_MIN_LEN', 250))
+        divergent_max_len = int(getattr(config.Strategy.Writer, 'COLLECTION_DIVERGENT_MAX_LEN', 600))
+        if divergent_min_len > divergent_max_len:
+            # 防呆：配置写反时自动回退默认值，避免流程卡死
+            divergent_min_len, divergent_max_len = 250, 600
+            print("   ⚠️ [Collection] 发散字数配置异常，已回退默认区间 250-600。")
         
         # [修改] 提取电影列表（不带分数），发送给 AI 进行内容拆解
         movie_list_parts = []
@@ -76,12 +82,21 @@ class CollectionWriterAgent:
                 clean_json = response.replace("```json", "").replace("```", "").strip()
                 data = json.loads(clean_json)
                 
-                # 🚨 发散介绍字数熔断检查
-                divergent_text = data.get('divergent_text', '')
-                if len(divergent_text) > 400:
-                    print(f"   ⚠️ [熔断] 发散介绍字数超限 ({len(divergent_text)} 字，限制 400 字)，打回重写！")
-                    data = None # 重置 data 以触发下一轮
-                    continue
+                # 🚨 mode_one 发散介绍字数熔断检查
+                divergent_text = str(data.get('divergent_text', '')).strip()
+                divergent_len = len(divergent_text)
+                if body_mode == "mode_one":
+                    if divergent_len < divergent_min_len or divergent_len > divergent_max_len:
+                        if divergent_len < divergent_min_len:
+                            reason = "偏短"
+                        else:
+                            reason = "超限"
+                        print(
+                            f"   ⚠️ [熔断] 发散介绍字数{reason} "
+                            f"({divergent_len} 字，要求 {divergent_min_len}-{divergent_max_len} 字)，打回重写！"
+                        )
+                        data = None  # 重置 data 以触发下一轮
+                        continue
 
                 # [原因: mode_three 专属约束] mode_three 的 intro 仅做上限校验，避免唯一正文段过长
                 intro_text = str(data.get('intro', '')).strip()
@@ -90,7 +105,11 @@ class CollectionWriterAgent:
                     data = None
                     continue
 
-                print(f"   ✅ 发散介绍字数合规 ({len(divergent_text)}/400 字)")
+                if body_mode == "mode_one":
+                    print(
+                        f"   ✅ 发散介绍字数合规 "
+                        f"({divergent_len}/{divergent_min_len}-{divergent_max_len} 字)"
+                    )
                 if body_mode == "mode_three":
                     print(f"   ✅ mode_three intro 长度合规 ({len(intro_text)}/200 字)")
                 break # 成功则跳出循环
@@ -225,6 +244,8 @@ class CollectionWriterAgent:
         movie_count = len(movies)
         min_len = int(getattr(config.Strategy.Writer, 'COLLECTION_SUMMARY_MIN_LEN', 55))
         max_len = int(getattr(config.Strategy.Writer, 'COLLECTION_SUMMARY_MAX_LEN', 80))
+        divergent_min_len = int(getattr(config.Strategy.Writer, 'COLLECTION_DIVERGENT_MIN_LEN', 250))
+        divergent_max_len = int(getattr(config.Strategy.Writer, 'COLLECTION_DIVERGENT_MAX_LEN', 600))
 
         common_header = f"""
         请为一期主题为“{theme}”，标题为“{title}”的电影专题盘点撰写文案。
@@ -314,7 +335,7 @@ class CollectionWriterAgent:
         1. 切入点：不要空洞说教，必须从本期这 {movie_count} 部电影的共性中提取独特洞察。
         2. 行文逻辑：先用一句犀利的论断重新定义该主题，然后具体描述这类电影带给观众的真实心理/生理反应，最后落脚于“为什么我们今天依然需要这类电影”。
         3. 语感红线：句子短促有力，多用名词和动词。严禁出现“不仅仅是...更是”、“视觉盛宴”、“淋漓尽致”等烂俗套话。
-        4. 字数要求：严格控制在 250-350 字之间，绝不能超过 380 字！
+        4. 字数要求：严格控制在 {divergent_min_len}-{divergent_max_len} 字之间。
 
         【任务 3：拆解每部电影素材 (movies_content)】
         请为每部电影提供：
