@@ -206,6 +206,11 @@ class Strategy:
         # 说明：poster 子模式本身就是直发原图，此开关仅影响 landscape 子模式。
         APPEND_ORIGINAL_IMAGES: bool = True
 
+        # ================= 封面水印英文名判定重试 =================
+        # 说明：preview 封面渲染时，会把“电影原名”批量发给 DeepSeek 判定是否应显示英文行。
+        # 若调用失败或返回不可解析 JSON，会按该次数自动重试；重试后仍失败则回退为“不显示英文行”。
+        COVER_EN_NAME_RETRY_TIMES: int = 3
+
 # ================= 路径配置 (定海神针) =================
 # 获取当前文件(config.py)所在的目录，即项目根目录
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

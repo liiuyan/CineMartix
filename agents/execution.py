@@ -16,6 +16,7 @@ class ExecutionAgent:
         print("\n🚀 [5/5 ExecutionAgent] 准备发布...")
         self.last_status = "failed"
         
+        # 第一道防线：登录态校验失败直接返回，避免无意义的发布请求。
         status = self.client.call_tool("check_login_status")
         is_logged_in = False
         if isinstance(status, dict) and (status.get("is_logged_in") is True or status.get("logged_in") is True):
@@ -35,6 +36,10 @@ class ExecutionAgent:
         print(f"   图片数: {len(image_paths)}")
 
         # 发布前统一决策入口: single=4选项，collection/preview=3选项
+        # 返回值语义：
+        # - False: 用户放弃发布（上游按 success is None 处理收尾）
+        # - None: 立即发布
+        # - str: 定时发布时间（ISO8601）
         schedule_at = self._ask_publish_decision(run_mode, note_data)
         if schedule_at is False:
             self.last_status = "cancelled"
@@ -75,6 +80,7 @@ class ExecutionAgent:
             return None
 
         # 非交互环境自动走立即发布，避免无人值守任务卡在 input。
+        # 这条规则保障 cron/CI 下不会因为等待输入而僵死。
         if not sys.stdin.isatty():
             print("   ℹ️ 检测到非交互环境，自动选择“立即发布”。")
             return None
@@ -187,6 +193,7 @@ class ExecutionAgent:
                 print("   ⚠️ 必须包含时区偏移，例如 +08:00。")
                 continue
 
+            # 统一使用输入时区做“未来时间”判定，避免本地时区差异导致误判。
             now = datetime.now(dt.tzinfo)
             if dt <= now:
                 print("   ⚠️ 定时时间必须晚于当前时间。")

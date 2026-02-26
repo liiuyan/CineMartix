@@ -100,6 +100,7 @@ class XHSClient:
         url = f"{self.base_url}{endpoint}"
 
         try:
+            # 统一入口：把“工具名 -> HTTP 接口”映射收敛到这里，业务层只关心 tool_name。
             if method == "GET":
                 resp = requests.get(url, params=args)
             else:
@@ -242,6 +243,8 @@ class PendingManager:
 
             if valid_lines:
                 first_line = valid_lines[0].strip()
+                # 仅按“首条任务”删除，维持 pending 的队列语义（FIFO）。
+                # 这里保留 startswith 兼容历史格式（电影名 / 电影名|年份 / 电影名|原名|标题）。
                 if first_line.startswith(movie_name):
                     print(f"🗑️ [Pending] 从待办列表中移除已发布的: 《{first_line}》")
                     remaining_lines = valid_lines[1:]
@@ -264,6 +267,7 @@ class PendingManager:
             target_path = os.path.join(done_dir, folder_name)
 
             # 防覆盖: 如果目标已存在同名文件夹，先删除旧的
+            # 语义：归档目录始终保留“本次最新产物”，避免旧残留误导排查。
             if os.path.exists(target_path):
                 shutil.rmtree(target_path)
 

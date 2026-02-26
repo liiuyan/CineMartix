@@ -56,6 +56,7 @@ class CollectionMetaFetcher:
             if self.use_local and cache_key in local_scores:
                 local_data = local_scores[cache_key]
                 # [核心修改] 满血判定：除了要包含 4 个键，且核心分数 (douban, imdb) 不能是 N/A
+                # 目的：避免“命中缓存但数据无效”导致永久不触发网络补齐。
                 has_all_keys = all(k in local_data for k in ("douban", "imdb", "rotten_tomatoes", "metacritic"))
                 
                 if has_all_keys:
@@ -100,6 +101,7 @@ class CollectionMetaFetcher:
                     movie['region'] = str(api_data.get('region', '')).strip()
                 except Exception as e:
                     # 【核心修改】拦截原版的异常熔断！合集模式必须保证后续电影能继续处理
+                    # 语义：单片失败只影响当前项，不应拖垮整夹任务。
                     print(f"      ⚠️ API 抓取异常或无数据 (已拦截): {e}")
             
             # --- 数据清洗与校验 ---

@@ -13,6 +13,7 @@ class PreviewTopicAgent:
     3. 严格校验图片命名:
        - 电影名｜序号
        - 电影名｜原名｜序号
+       - 封面图：主标题\\n第二行\\n第三行｜0（兼容半角 | 和全角 ｜）
     """
 
     def __init__(self):
@@ -40,7 +41,12 @@ class PreviewTopicAgent:
             "folder_path": "...",
             "movies": [
                 {"name": "...", "path": "...", "index": 1, "lock_original_title": "...|None"}
-            ]
+            ],
+            "cover": {  # 可选，无封面时为 None
+                "path": "...",
+                "title_lines": ["第一行", "第二行", "第三行"],
+                "raw_title": "第一行\\n第二行\\n第三行"
+            } | None
         }
 
         说明:
@@ -66,21 +72,26 @@ class PreviewTopicAgent:
                 print(f"   ⚠️ 任务目录格式不正确，需为 '主题｜标题': {item}")
                 continue
 
-            movies = self._scan_images_strict(folder_path)
-            if movies is None:
+            # 扫描结果同时返回电影素材与可选封面图，便于下游视觉层统一编排发布序列。
+            scan_result = self._scan_images_strict(folder_path)
+            if scan_result is None:
                 print(f"   ⛔ 严格模式校验失败，已跳过目录: {item}")
                 continue
+            movies = scan_result["movies"]
+            cover = scan_result["cover"]
             if not movies:
                 print(f"   ⚠️ 目录无有效图片，已跳过: {item}")
                 continue
 
-            print(f"   ✅ 命中预览任务: {item} | 共 {len(movies)} 部")
+            cover_log = " | 含封面图" if cover else " | 无封面图"
+            print(f"   ✅ 命中预览任务: {item} | 共 {len(movies)} 部{cover_log}")
             return {
                 "sub_mode": self.sub_mode,
                 "theme": theme,
                 "title": title,
                 "folder_path": folder_path,
                 "movies": movies,
+                "cover": cover,
             }
 
         print("   😴 当前无可执行的新片速递任务。")
@@ -102,18 +113,20 @@ class PreviewTopicAgent:
             return None, None
         return parts[0], parts[1]
 
-    def _scan_images_strict(self, folder_path: str) -> list | None:
+    def _scan_images_strict(self, folder_path: str) -> dict | None:
         """
-        严格扫描图片并返回按序号排序的电影列表。
+        严格扫描图片并返回按序号排序的电影列表 + 可选封面图信息。
 
         允许命名:
         1) 电影名｜序号
         2) 电影名｜原名｜序号
+        3) 封面图：主标题\\n第二行\\n第三行｜0
 
         返回 None 代表命名违规，触发“整夹跳过”。
         """
         valid_exts = {".jpg", ".jpeg", ".png", ".webp"}
         movies = []
+        cover_data = None
 
         for file_name in os.listdir(folder_path):
             # 忽略隐藏文件和子目录(例如 output/)
@@ -128,7 +141,8 @@ class PreviewTopicAgent:
             if ext not in valid_exts:
                 continue
 
-            # 统一分隔符处理，避免全角/半角导致解析歧义
+            # 统一分隔符处理，避免全角/半角导致解析歧义。
+            # 约定：后续逻辑全部按全角分隔符分段处理。
             base_name = os.path.splitext(file_name)[0]
             parts = [p.strip() for p in base_name.replace("|", "｜").split("｜")]
 
@@ -158,6 +172,39 @@ class PreviewTopicAgent:
                 print(f"      ⛔ 图片序号必须为阿拉伯数字: {file_name}")
                 return None
 
+            # 约定：序号 0 仅用于封面图，不参与电影数据采集。
+            if index == 0:
+                # 封面图必须是两段式：主标题｜0
+                if len(parts) != 2:
+                    print(f"      ⛔ 封面图命名不合规(必须两段式): {file_name}")
+                    return None
+                if cover_data is not None:
+                    print(f"      ⛔ 同一任务目录检测到多张封面图(|0/｜0): {file_name}")
+                    return None
+                if "\\n" not in movie_name:
+                    print(f"      ⛔ 封面主标题必须使用字面量 \\\\n 分为三行: {file_name}")
+                    return None
+
+                # 封面标题固定三行协议（可空第二/第三行，但第一行必须有内容）。
+                title_lines = [x.strip() for x in movie_name.split("\\n")]
+                if len(title_lines) != 3:
+                    print(f"      ⛔ 封面主标题必须恰好包含两处 \\\\n 分隔: {file_name}")
+                    return None
+                if not title_lines[0]:
+                    print(f"      ⛔ 封面主标题第一行不能为空: {file_name}")
+                    return None
+
+                cover_data = {
+                    "path": full_path,
+                    "title_lines": title_lines,
+                    "raw_title": movie_name,
+                }
+                continue
+
+            if index < 0:
+                print(f"      ⛔ 图片序号不能为负数: {file_name}")
+                return None
+
             # 下游只消费标准化结构，不再关心原始文件名细节。
             movies.append(
                 {
@@ -170,4 +217,4 @@ class PreviewTopicAgent:
 
         # 发布顺序完全由编号控制，不依赖文件系统自然顺序。
         movies.sort(key=lambda x: x["index"])
-        return movies
+        return {"movies": movies, "cover": cover_data}

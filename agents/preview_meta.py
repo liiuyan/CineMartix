@@ -72,6 +72,7 @@ class PreviewMetaFetcher:
             movie_name = movie["name"]
             print(f"   🔍 ({i+1}/{len(movies)}) 处理: 《{movie_name}》")
             try:
+                # 单片失败即整夹终止：preview 保持强一致，避免部分片目“半成品发布”。
                 enriched.append(self._collect_for_one_movie(movie))
             except Exception as e:
                 print(f"   ⛔ [熔断] 《{movie_name}》元数据不完整: {e}")
@@ -116,6 +117,7 @@ class PreviewMetaFetcher:
         self._merge_missing(result, tmdb_data)
 
         # 2) Serper 搜索补齐：先用便宜通道补缺。
+        # 注意：_collect_serper_snippets 内部已实现“收齐即停”，不会盲目跑满预算。
         snippets = self._collect_serper_snippets(name, lock_original_title, result=result)
 
         # 3) Gemini Grounding 最终兜底：仅在仍有必填缺失时触发。
@@ -179,6 +181,7 @@ class PreviewMetaFetcher:
             )
 
         # 最终必填校验：任何缺失都会在上游终止整夹。
+        # 这里是整条采集链的最终闸门，确保 Writer/Visual 接收到的是可发布数据。
         missing_final = self._collect_required_missing(result, lock_original_title)
         if missing_final:
             raise ValueError("缺少必填字段: " + ", ".join(missing_final))

@@ -2,6 +2,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 
 import config
+from services.cover_renderer import CoverRenderer
 
 
 class PreviewVisualAgent:
@@ -88,24 +89,40 @@ class PreviewVisualAgent:
                 "shadow_alpha": 200,  # 阴影透明度（0-255）
             },
         }
+        # 封面渲染能力下沉到 services，便于 preview/collection 复用。
+        self.cover_renderer = CoverRenderer()
 
-    def run(self, movies: list, folder_path: str) -> list:
+    def run(self, movies: list, folder_path: str, cover_data: dict | None = None) -> list:
         """
         视觉主入口:
         - poster: 原图直发
         - landscape: 渲染 -> 3合1拼接 -> (可选)追加渲染单图 -> (可选)追加原图
+        - 可选封面: 若检测到 `|0/｜0` 封面图，先渲染并插入发布序列首位
 
         返回值即最终发布图片顺序列表。
         """
         print("\n🎨 [4/5 PreviewVisualAgent] 正在处理新片速递图片...")
 
+        output_dir = os.path.join(folder_path, "output")
+        cover_path = None
+        if cover_data:
+            os.makedirs(output_dir, exist_ok=True)
+            # 封面渲染失败视为硬错误：用户显式提供了封面素材，必须保证可发布。
+            cover_path = self.cover_renderer.render(cover_data, movies, output_dir)
+            if not cover_path:
+                print("   ⛔ [熔断] 封面图渲染失败。")
+                return []
+
         # poster 子模式：完全不做图像加工，按序发布输入原图。
         if self.sub_mode == "poster":
             print("   🖼️ 子模式 poster：按顺序直发原图，不做渲染。")
-            return [m["path"] for m in movies]
+            final_paths = [m["path"] for m in movies]
+            if cover_path:
+                # 需求约束：封面图永远是第 1 张。
+                final_paths.insert(0, cover_path)
+            return final_paths
 
         # landscape 子模式：需要生成 output 目录保存中间产物与拼接图。
-        output_dir = os.path.join(folder_path, "output")
         os.makedirs(output_dir, exist_ok=True)
 
         rendered_canvases = []
@@ -161,6 +178,11 @@ class PreviewVisualAgent:
             originals = [m["path"] for m in movies]
             final_paths.extend(originals)
             print(f"   ➕ 已追加原图: {len(originals)} 张")
+
+        if cover_path:
+            # 需求约束：无论 landscape 如何拼接，最终封面都插入发布序列首位。
+            final_paths.insert(0, cover_path)
+            print("   ✅ 已将封面图插入发布序列首位。")
 
         return final_paths
 

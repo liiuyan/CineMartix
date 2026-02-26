@@ -210,7 +210,11 @@ def run_preview_mode():
     # === Step 4: 视觉处理 ===
     # landscape: 渲染+拼接；poster: 原图直发。
     visual_agent = PreviewVisualAgent()
-    final_images = visual_agent.run(writer_data["movies"], topic_data["folder_path"])
+    final_images = visual_agent.run(
+        writer_data["movies"],
+        topic_data["folder_path"],
+        cover_data=topic_data.get("cover"),
+    )
     if not final_images:
         print("❌ [Preview] 视觉处理失败，终止流程。")
         return
