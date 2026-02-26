@@ -354,3 +354,30 @@ def clean_tag(raw_str: str) -> str:
         return base_name
         
     return cleaned_name
+
+
+# ==========================================
+# [新增] Prompt 语料文件加载器
+# ==========================================
+def load_prompt_text(relative_path: str) -> str:
+    """
+    读取 prompts 目录下的文本语料。
+    设计要求：文件缺失时直接抛异常，触发上游熔断。
+    """
+    abs_path = os.path.join(config.BASE_DIR, relative_path)
+    if not os.path.exists(abs_path):
+        raise FileNotFoundError(f"Prompt 文件缺失: {abs_path}")
+
+    try:
+        with open(abs_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception as e:
+        raise RuntimeError(f"读取 Prompt 文件失败: {abs_path} | {e}") from e
+
+
+def load_prompt_lines(relative_path: str) -> list[str]:
+    """
+    按行读取文本语料并忽略空行。
+    """
+    text = load_prompt_text(relative_path)
+    return [line.strip() for line in text.splitlines() if line.strip()]

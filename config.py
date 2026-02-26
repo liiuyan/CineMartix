@@ -16,12 +16,12 @@ class Strategy:
     class System:
         """[v4.0 新增] 系统运行模式与全局配置"""
         # 运行模式选择: "single" (单片模式) / "collection" (合集盘点模式) / "preview" (新片速递模式)
-        RUN_MODE: str = "collection" 
+        RUN_MODE: str = "preview" 
         
         # [新增] 发布前决策菜单总开关
         # True: 启用发布前菜单（single=4选项，collection/preview=3选项）
         # False: 直接立即发布（不弹菜单）
-        ENABLE_PUBLISH_DECISION_MENU: bool = True
+        ENABLE_PUBLISH_DECISION_MENU: bool = False
 
         # 本地分数兜底开关 (仅对合集模式有效)
         USE_LOCAL_SCORES: bool = True
@@ -134,7 +134,7 @@ class Strategy:
         # ================= 文案展示策略 =================
         # 说明：以下配置只影响 preview 模式，不会影响 single/collection。
         # 是否展示“每部电影简介块”
-        # True: 会对简介做 55-80 字重写与强校验；任何一部不达标即熔断整夹
+        # True: 会对简介做 SUMMARY_MIN_LEN-SUMMARY_MAX_LEN 字重写与强校验；任何一部不达标即熔断整夹
         # False: 不展示简介块，同时不因简介缺失而熔断
         SHOW_SUMMARY_BLOCK: bool = True
 
@@ -145,6 +145,14 @@ class Strategy:
 
         # CTA 文案内容 (SHOW_CTA=True 时生效)
         CTA_TEXT: str = "欢迎大家在评论区留下你期待电影的名字～"
+
+        # ================= preview 片单附加信息开关 =================
+        # 控制“电影名后括号信息”是否展示，默认全关闭。
+        # 示例: 1️⃣电影名 (上映 2026-01-01 | 上映地 中国内地 | 剧情/犯罪 | 美国)
+        SHOW_LIST_RELEASE_DATE: bool = False    # 是否显示上映日期
+        SHOW_LIST_RELEASE_REGION: bool = False  # 是否显示上映地
+        SHOW_LIST_GENRES: bool = False         # 是否显示电影类型
+        SHOW_LIST_REGION: bool = False          # 是否显示国家/地区
 
         # ================= 外部检索预算(按单部电影计数) =================
         # Serper 最多请求次数。
@@ -182,15 +190,20 @@ class Strategy:
         HOOK_MIN_LEN: int = 6
         HOOK_MAX_LEN: int = 22
 
-        # 噱头禁用词。命中任一词视为无效噱头。
-        HOOK_FORBIDDEN_WORDS: list[str] = ["炸裂", "必看"]
+        # 噱头生成重试次数（默认 5 次）。
+        # 说明：每次失败都会带上“上一轮不合格原因”反馈给模型，直到达标或耗尽重试次数。
+        HOOK_RETRY_TIMES: int = 5
 
         # ================= 简介重写约束 =================
         # 仅当 SHOW_SUMMARY_BLOCK=True 时生效。
+        # SUMMARY_TARGET_MIN_LEN/SUMMARY_TARGET_MAX_LEN: 生成目标区间（给 AI 的写作要求）
+        # SUMMARY_MIN_LEN/SUMMARY_MAX_LEN: 校验通过区间（仅超出才触发重写）
+        SUMMARY_TARGET_MIN_LEN: int = 60
+        SUMMARY_TARGET_MAX_LEN: int = 70
         # 简介必须落在 [SUMMARY_MIN_LEN, SUMMARY_MAX_LEN]，否则重写；
         # 超过 SUMMARY_REWRITE_RETRIES 仍不达标时，熔断整夹并停止发布。
         SUMMARY_MIN_LEN: int = 55
-        SUMMARY_MAX_LEN: int = 100
+        SUMMARY_MAX_LEN: int = 80
         SUMMARY_REWRITE_RETRIES: int = 6
 
         # ================= 预览模式图片发布策略 =================

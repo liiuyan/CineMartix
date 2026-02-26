@@ -54,7 +54,7 @@ class PreviewVisualAgent:
             },
             # 英文原名样式（中间层）
             "title_en": {
-                "x": 80,  # 英文原名起始 X 坐标
+                "x": 60,  # 英文原名起始 X 坐标
                 "size": 80,  # 英文原名字号
                 "min_size": 20,  # 英文原名自适应缩放最小字号
                 "font_path": config.FONT_QUOTE_PATH,  # 英文原名字体
@@ -78,7 +78,7 @@ class PreviewVisualAgent:
             },
             # 噱头样式（底部第一层）
             "subtitle": {
-                "x": 80,  # 噱头起始 X 坐标
+                "x": 60,  # 噱头起始 X 坐标
                 "size": 80,  # 噱头字号
                 "min_size": 22,  # 噱头自适应缩放最小字号
                 "font_path": config.FONT_SCORE_PATH,  # 噱头字体

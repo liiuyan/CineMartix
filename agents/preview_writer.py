@@ -1,7 +1,8 @@
 import random
+import re
 
 import config
-from utils import LLMBrain, clean_tag
+from utils import LLMBrain, clean_tag, load_prompt_lines, load_prompt_text
 
 
 PREVIEW_EMOJI_POOL = ["🆕", "🎬", "🍿", "📽️", "🎞️"]
@@ -13,7 +14,7 @@ class PreviewWriterAgent:
 
     职责:
     1. 执行 preview 必填字段终检与熔断。
-    2. 可选生成简介块 (55-80 字)。
+    2. 可选生成简介块（字数区间由 config 控制）。
     3. 组装正文与固定 tags。
     """
 
@@ -25,19 +26,41 @@ class PreviewWriterAgent:
         self.show_summary = bool(getattr(config.Strategy.Preview, "SHOW_SUMMARY_BLOCK", True))
         self.show_cta = bool(getattr(config.Strategy.Preview, "SHOW_CTA", True))
         self.cta_text = str(getattr(config.Strategy.Preview, "CTA_TEXT", "")).strip()
+        # 片单附加信息开关（默认 false；由 config 统一控制）
+        self.show_list_release_date = bool(
+            getattr(config.Strategy.Preview, "SHOW_LIST_RELEASE_DATE", False)
+        )
+        self.show_list_release_region = bool(
+            getattr(config.Strategy.Preview, "SHOW_LIST_RELEASE_REGION", False)
+        )
+        self.show_list_genres = bool(
+            getattr(config.Strategy.Preview, "SHOW_LIST_GENRES", False)
+        )
+        self.show_list_region = bool(
+            getattr(config.Strategy.Preview, "SHOW_LIST_REGION", False)
+        )
 
         # 噱头约束（与用户确认规则一致）
         self.hook_min_len = int(getattr(config.Strategy.Preview, "HOOK_MIN_LEN", 6))
         self.hook_max_len = int(getattr(config.Strategy.Preview, "HOOK_MAX_LEN", 22))
-        self.hook_forbidden = [
-            str(x).strip()
-            for x in getattr(config.Strategy.Preview, "HOOK_FORBIDDEN_WORDS", [])
-            if str(x).strip()
-        ]
+        self.hook_retry_times = max(
+            1, int(getattr(config.Strategy.Preview, "HOOK_RETRY_TIMES", 5))
+        )
+        # Prompt 语料从 prompts 目录读取；文件缺失会抛错并熔断流程。
+        self.hook_forbidden = load_prompt_lines(
+            "prompts/preview/hook_forbidden_words.txt"
+        )
+        self.hook_reference_examples = load_prompt_text(
+            "prompts/preview/hook_reference_examples.txt"
+        )
 
-        # 简介约束（SHOW_SUMMARY_BLOCK=True 时强校验）
-        self.summary_min = int(getattr(config.Strategy.Preview, "SUMMARY_MIN_LEN", 55))
-        self.summary_max = int(getattr(config.Strategy.Preview, "SUMMARY_MAX_LEN", 80))
+        # 简介约束（preview 双区间）：
+        # 1) target: 给 AI 的生成目标区间
+        # 2) validate: 重写触发/通过校验区间
+        self.summary_target_min = int(config.Strategy.Preview.SUMMARY_TARGET_MIN_LEN)
+        self.summary_target_max = int(config.Strategy.Preview.SUMMARY_TARGET_MAX_LEN)
+        self.summary_min = int(config.Strategy.Preview.SUMMARY_MIN_LEN)
+        self.summary_max = int(config.Strategy.Preview.SUMMARY_MAX_LEN)
         self.summary_retries = max(
             1, int(getattr(config.Strategy.Preview, "SUMMARY_REWRITE_RETRIES", 3))
         )
@@ -47,7 +70,7 @@ class PreviewWriterAgent:
         预览文案主流程:
         1) 必填字段终检
         2) 噱头修复/重写
-        3) 可选简介改写(55-80)
+        3) 可选简介改写（范围由 config 决定）
         4) 组装正文与 tags
         """
         print("\n✍️ [3/5 PreviewWriterAgent] 正在组装新片速递文案...")
@@ -67,7 +90,7 @@ class PreviewWriterAgent:
                 print(f"   ⛔ [熔断] 《{movie['name']}》噱头生成失败")
                 return None
 
-            # 简介块开启时：必须能改写到 55-80 字
+            # 简介块开启时：仅当超出校验区间才触发重写
             if self.show_summary:
                 summary = self._rewrite_summary(movie["name"], movie.get("overview", ""))
                 if not summary:
@@ -124,31 +147,70 @@ class PreviewWriterAgent:
         """
         保证噱头可用：
         - 先校验已有值
-        - 不可用则最多重写 3 次
+        - 不可用则按配置次数重试生成
         """
         current = self._normalize_hook(movie.get("hook", ""))
         if current:
+            print(f"      ✅ [Writer-Hook] 复用已有合规噱头: {current}")
             return current
 
-        prompt = f"""
-请为电影生成一句“新片速递噱头”。
+        snippets = movie.get("hook_snippets", []) or []
+        snippet_text = ""
+        if snippets:
+            snippet_text = "\n".join(
+                [f"- {s.get('title','')} | {s.get('snippet','')}" for s in snippets[:8]]
+            )
+
+        base_prompt = f"""
+请基于以下电影信息，先挑选出其中 1-2 个你认为最有噱头的点，再生成一句“新片速递噱头”。
 电影名：{movie.get('name','')}
 原名：{movie.get('original_title','')}
 类型：{movie.get('genres','')}
 导演：{movie.get('director','')}
 主演：{movie.get('actors','')}
 简介：{movie.get('overview','')}
+补充片段：
+{snippet_text}
 
-要求：
+参考示例（原文保留，不可删除或简化，不要原句照抄）：
+{self.hook_reference_examples}
+
+硬性要求：
 1) 只输出一句中文短句。
-2) 字数 {self.hook_min_len}-{self.hook_max_len}。
-3) 禁止出现：{",".join(self.hook_forbidden)}。
+2) 清洗后字数必须在 {self.hook_min_len}-{self.hook_max_len}。
+3) 句末的 。 . , ， 不计入字数（并需在最终结果里去掉）。
+4) 禁止出现：{",".join(self.hook_forbidden)}。
+5) 禁止输出任何解释、前后缀、编号。
+6) 内容只围绕你选出的 1-2 个噱头点，禁止把多条信息硬拼在一句里。
 """
-        for _ in range(3):
+
+        feedback_block = ""
+        for attempt in range(1, self.hook_retry_times + 1):
+            prompt = base_prompt
+            if feedback_block:
+                prompt += (
+                    "\n\n【上一次结果不合格，必须修正后重写】\n"
+                    f"{feedback_block}\n"
+                    "请严格按上方硬性要求重写，仅输出一句噱头。"
+                )
+
             raw = self.brain.think(prompt, system_prompt="你是电影宣发编辑，只输出一句话。")
-            candidate = self._normalize_hook(raw or "")
+            candidate, reasons = self._validate_hook_candidate(raw or "")
             if candidate:
+                print(f"      ✅ [Writer-Hook] 合规噱头: {candidate}")
                 return candidate
+
+            reason_text = "；".join(reasons) if reasons else "空内容"
+            prev_text = self._clean_plain_text(raw or "")
+            print(
+                f"      ⚠️ [Writer-Hook] 第 {attempt}/{self.hook_retry_times} 次失败: {reason_text} "
+                f"| 原输出: {prev_text or '(空)'}"
+            )
+            feedback_block = (
+                f"上一版噱头：{prev_text or '(空)'}\n"
+                f"不合格原因：{reason_text}"
+            )
+
         return ""
 
     def _rewrite_summary(self, movie_name: str, overview: str) -> str:
@@ -170,7 +232,7 @@ class PreviewWriterAgent:
                 print(f"      🔄 《{movie_name}》简介重写重试 {attempt}/{self.summary_retries}")
 
             prompt = f"""
-请把以下电影简介改写成一段 {self.summary_min}-{self.summary_max} 字的中文简介。
+请把以下电影简介改写成一段 {self.summary_target_min}-{self.summary_target_max} 字的中文简介。
 电影名：{movie_name}
 原简介：{source}
 
@@ -178,6 +240,8 @@ class PreviewWriterAgent:
 1) 必须是自然中文，不要分点，不要换行。
 2) 只输出简介正文，不要加片名，不要加引号。
 3) 只能基于“原简介”中的事实信息，不要编造新设定。
+4) 优先命中目标区间 {self.summary_target_min}-{self.summary_target_max} 字；
+   若无法精确命中，也必须落在校验区间 {self.summary_min}-{self.summary_max} 字。
 {length_hint}
 """
             raw = self.brain.think(prompt, system_prompt="你是电影编辑，只返回简介正文。")
@@ -190,20 +254,24 @@ class PreviewWriterAgent:
             if current_len < self.summary_min:
                 print(
                     f"      ⚠️ 《{movie_name}》简介不达标: {current_len}字 "
-                    f"(要求{self.summary_min}-{self.summary_max})，尝试 {attempt}/{self.summary_retries}，下一轮要求更长。"
+                    f"(校验{self.summary_min}-{self.summary_max}，目标{self.summary_target_min}-{self.summary_target_max})，"
+                    f"尝试 {attempt}/{self.summary_retries}，下一轮要求更长。"
                 )
                 length_hint = (
-                    f"4) 你上一版明显偏短。下一版请在不新增事实的前提下补充细节，"
-                    f"把长度提高到 {self.summary_min}-{self.summary_max} 字。"
+                    f"5) 你上一版明显偏短。下一版请在不新增事实的前提下补充细节，"
+                    f"优先写到 {self.summary_target_min}-{self.summary_target_max} 字，"
+                    f"且至少达到 {self.summary_min} 字。"
                 )
             else:
                 print(
                     f"      ⚠️ 《{movie_name}》简介不达标: {current_len}字 "
-                    f"(要求{self.summary_min}-{self.summary_max})，尝试 {attempt}/{self.summary_retries}，下一轮要求更短。"
+                    f"(校验{self.summary_min}-{self.summary_max}，目标{self.summary_target_min}-{self.summary_target_max})，"
+                    f"尝试 {attempt}/{self.summary_retries}，下一轮要求更短。"
                 )
                 length_hint = (
-                    f"4) 你上一版明显偏长。下一版请压缩表达但保留核心信息，"
-                    f"把长度控制到 {self.summary_min}-{self.summary_max} 字。"
+                    f"5) 你上一版明显偏长。下一版请压缩表达但保留核心信息，"
+                    f"优先写到 {self.summary_target_min}-{self.summary_target_max} 字，"
+                    f"并严格不超过 {self.summary_max} 字。"
                 )
         return ""
 
@@ -222,13 +290,13 @@ class PreviewWriterAgent:
         for i, movie in enumerate(movies):
             line = f"{i+1}️⃣{movie['name']}"
             extras = []
-            if movie.get("release_date"):
+            if self.show_list_release_date and movie.get("release_date"):
                 extras.append(f"上映 {movie['release_date']}")
-            if movie.get("release_region"):
+            if self.show_list_release_region and movie.get("release_region"):
                 extras.append(f"上映地 {movie['release_region']}")
-            if movie.get("genres"):
+            if self.show_list_genres and movie.get("genres"):
                 extras.append(movie["genres"])
-            if movie.get("region"):
+            if self.show_list_region and movie.get("region"):
                 extras.append(movie["region"])
             if extras:
                 line += f" ({' | '.join(extras)})"
@@ -276,14 +344,36 @@ class PreviewWriterAgent:
 
     def _normalize_hook(self, raw: str) -> str:
         """统一清洗并做合法性判断。"""
+        cleaned, _ = self._validate_hook_candidate(raw)
+        return cleaned
+
+    def _validate_hook_candidate(self, raw: str) -> tuple[str, list[str]]:
+        """
+        清洗并校验 hook 候选文本。
+        规则：
+        1) 句末 。 . , ， 会被剔除后再计数；
+        2) 命中禁用词或长度不合规则判失败。
+        """
+        reasons = []
         text = self._clean_plain_text(raw)
+        text = re.sub(r"[。.,，]+$", "", text).strip()
         if not text:
-            return ""
-        if any(word in text for word in self.hook_forbidden):
-            return ""
-        if len(text) < self.hook_min_len or len(text) > self.hook_max_len:
-            return ""
-        return text
+            reasons.append("空内容")
+            return "", reasons
+
+        hit_words = [word for word in self.hook_forbidden if word and word in text]
+        if hit_words:
+            reasons.append("命中禁用词: " + ",".join(hit_words))
+
+        text_len = len(text)
+        if text_len < self.hook_min_len or text_len > self.hook_max_len:
+            reasons.append(
+                f"长度不合规: {text_len}（要求 {self.hook_min_len}-{self.hook_max_len}）"
+            )
+
+        if reasons:
+            return "", reasons
+        return text, []
 
     def _clean_plain_text(self, raw: str) -> str:
         """清理引号/代码块/换行，得到纯文本一行字符串。"""

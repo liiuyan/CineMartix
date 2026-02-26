@@ -55,7 +55,9 @@ utils.py
   ├─ XHSClient
   ├─ LLMBrain
   ├─ calculate_progress()
-  └─ clean_tag()
+  ├─ clean_tag()
+  ├─ load_prompt_text()
+  └─ load_prompt_lines()
 ```
 
 ---
@@ -67,6 +69,10 @@ little_red/
 ├── main.py
 ├── config.py
 ├── utils.py
+├── prompts/
+│   └── preview/
+│       ├── hook_forbidden_words.txt
+│       └── hook_reference_examples.txt
 ├── history.json
 ├── pending.txt
 ├── agents/
@@ -298,18 +304,27 @@ preview 还分两种子模式：
 5. 进入 Gemini 硬必填兜底循环（最多 `GEMINI_MAX_GROUNDING_PER_MOVIE` 次）：
    - 仅针对硬必填字段补齐。
    - 不会因为 `hook` 缺失而继续该循环。
-6. 若 `hook` 仍无效，则执行 Gemini 噱头专项尝试（最多 `GEMINI_HOOK_ATTEMPTS` 次）。
-7. 若噱头仍无效，再执行本地 `_generate_hookline()` 兜底生成。
-8. 进入 Writer 阶段后，`_ensure_hook()` 还会做最终合规校验与最多 3 次重写。
-9. 最终必填校验仍是严格的：`hook` 必须可用，否则整夹熔断。
+6. 若 `hook` 仍无效，则执行 Gemini 噱头专项尝试（最多 `GEMINI_HOOK_ATTEMPTS` 次）：
+   - 当 Gemini 返回的 `hook` 通过清洗校验（`clean_validate_hook`，当前实现为 `_validate_hook_candidate`）时，会打印：
+     - `✅ [Gemini] 合规噱头: ...`（普通 Gemini 补字段链路）
+     - `✅ [Gemini-Hook] 合规噱头: ...`（Gemini-Hook 专项链路）
+7. 若噱头仍无效，再执行本地 `_generate_hookline()` 兜底生成：
+   - 输入包含当前已获取的全部信息（TMDB/Serper/Gemini 字段 + snippets）。
+   - 会先从信息中挑选 `1-2` 个最有噱头的点，结合示例生成 `6-22` 字噱头。
+   - 句末 `。 . , ，` 不计字数，且会在清洗阶段移除。
+   - 若不合规会带上“上一轮失败原因”重试，最多 `HOOK_RETRY_TIMES` 次。
+8. 进入 Writer 阶段后，`_ensure_hook()` 会做最终兜底与同口径重试（同样基于 `1-2` 个噱头点 + 示例）。
+9. Meta 阶段最终必填校验不会因 `hook` 缺失提前熔断；`hook` 最终由 Writer 阶段判定，失败才整夹熔断。
 
 必填规则（当前实现）：
 
-- 电影名必须有
-- 上映日期必须有
-- 噱头必须有
-- 非中国电影原名必须有（中国电影原名可空）
-- 当 `SHOW_SUMMARY_BLOCK=True` 时简介必须有
+- Meta 阶段硬必填：
+  - 电影名必须有
+  - 上映日期必须有
+  - 非中国电影原名必须有（中国电影原名可空）
+  - 当 `SHOW_SUMMARY_BLOCK=True` 时简介必须有
+- Final 阶段（Writer 兜底后发布口径）：
+  - 噱头必须有（最终不可为空）
 - 电影类型（`genres`）会尽量收集，但缺失不会触发熔断
 
 上映日期优先级：正式院线优先（`type=3 > type=2 > type=1`，每档取最早日期）。
@@ -318,13 +333,20 @@ preview 还分两种子模式：
 
 - 标题 `<=20`
 - 正文结构：片单 +（可选简介块）+（可选CTA）
-- 当 `SHOW_SUMMARY_BLOCK=True` 时，简介会严格改写到 `SUMMARY_MIN_LEN ~ SUMMARY_MAX_LEN`：
-  - 不达标时会按“偏短/偏长”给出定向重写指令（更长或更短）
+- 片单行附加信息支持开关控制（默认全关闭）：
+  - `SHOW_LIST_RELEASE_DATE`
+  - `SHOW_LIST_RELEASE_REGION`
+  - `SHOW_LIST_GENRES`
+  - `SHOW_LIST_REGION`
+- 当 `SHOW_SUMMARY_BLOCK=True` 时，简介采用“双区间”策略：
+  - 生成目标区间：`SUMMARY_TARGET_MIN_LEN ~ SUMMARY_TARGET_MAX_LEN`（用于提示 AI 优先写到该范围）
+  - 校验通过区间：`SUMMARY_MIN_LEN ~ SUMMARY_MAX_LEN`（仅超出该范围才触发重写）
   - 每轮都基于原始查询到的简介事实改写（不基于上一轮 AI 文本扩写/缩写）
-  - 日志会打印每轮实际字数与尝试次数
+  - 日志会打印每轮实际字数、目标区间和校验区间
 - 标签固定前三个：`新片速递`、`红书宝藏片单`、`电影推荐`
 - 再追加前 3 部电影名清洗后的 tags
 - `正文 + tags <= 990`
+- hook 禁用词与参考示例从文本文件读取：`prompts/preview/hook_forbidden_words.txt`、`prompts/preview/hook_reference_examples.txt`（文件缺失会熔断）
 
 ### 4) 视觉处理
 
@@ -467,6 +489,10 @@ class Strategy:
         SHOW_SUMMARY_BLOCK = True
         SHOW_CTA = True
         CTA_TEXT = "欢迎大家在评论区留下你期待电影的名字～"
+        SHOW_LIST_RELEASE_DATE = False
+        SHOW_LIST_RELEASE_REGION = False
+        SHOW_LIST_GENRES = False
+        SHOW_LIST_REGION = False
 
         SERPER_MAX_QUERIES_PER_MOVIE = 5
         GEMINI_MAX_GROUNDING_PER_MOVIE = 3
@@ -475,10 +501,18 @@ class Strategy:
 
         HOOK_MIN_LEN = 6
         HOOK_MAX_LEN = 22
-        HOOK_FORBIDDEN_WORDS = ["炸裂", "必看"]
+        HOOK_RETRY_TIMES = 5
+        # hook 语料改为外部文本文件（缺失会熔断）
+        # prompts/preview/hook_forbidden_words.txt
+        # prompts/preview/hook_reference_examples.txt
 
+        # 简介双区间：
+        # 生成目标区间（提示 AI 优先写到该范围）
+        SUMMARY_TARGET_MIN_LEN = 60
+        SUMMARY_TARGET_MAX_LEN = 70
+        # 校验通过区间（仅超出该范围才触发重写）
         SUMMARY_MIN_LEN = 55
-        SUMMARY_MAX_LEN = 100
+        SUMMARY_MAX_LEN = 80
         SUMMARY_REWRITE_RETRIES = 6
 
         APPEND_RENDERED_DETAILS = False
@@ -519,9 +553,10 @@ class Strategy:
 
 ### 2. preview 简介改写反复失败
 
-- 默认要求严格命中长度区间（例如 55-80）
+- 当前采用双区间：目标 `SUMMARY_TARGET_MIN_LEN~SUMMARY_TARGET_MAX_LEN`（默认 60-70），校验 `SUMMARY_MIN_LEN~SUMMARY_MAX_LEN`（默认 55-80）
+- 只要简介落在校验区间就会通过；只有超出校验区间才会继续重写
 - 日志会输出每轮实际字数，并提示下一轮“写更长”或“写更短”
-- 可调小区间或调大 `SUMMARY_REWRITE_RETRIES`
+- 可调 `SUMMARY_TARGET_*`、`SUMMARY_*` 或 `SUMMARY_REWRITE_RETRIES`
 - 或关闭 `SHOW_SUMMARY_BLOCK`
 
 ### 3. 程序卡在终端等待输入

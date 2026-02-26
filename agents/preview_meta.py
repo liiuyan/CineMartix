@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 import requests
 
 import config
-from utils import LLMBrain
+from utils import LLMBrain, load_prompt_lines, load_prompt_text
 
 
 class PreviewMetaFetcher:
@@ -49,11 +49,16 @@ class PreviewMetaFetcher:
         # 噱头约束用于字段校验与兜底重写。
         self.hook_min_len = int(getattr(config.Strategy.Preview, "HOOK_MIN_LEN", 6))
         self.hook_max_len = int(getattr(config.Strategy.Preview, "HOOK_MAX_LEN", 22))
-        self.hook_forbidden = [
-            str(x).strip()
-            for x in getattr(config.Strategy.Preview, "HOOK_FORBIDDEN_WORDS", [])
-            if str(x).strip()
-        ]
+        self.hook_retry_times = max(
+            1, int(getattr(config.Strategy.Preview, "HOOK_RETRY_TIMES", 5))
+        )
+        # Prompt 语料从 prompts 目录读取；文件缺失会抛错并熔断流程。
+        self.hook_forbidden = load_prompt_lines(
+            "prompts/preview/hook_forbidden_words.txt"
+        )
+        self.hook_reference_examples = load_prompt_text(
+            "prompts/preview/hook_reference_examples.txt"
+        )
 
         self.brain = LLMBrain()
 
@@ -108,6 +113,7 @@ class PreviewMetaFetcher:
             "actors": "",
             "overview": "",
             "hook": "",
+            "hook_snippets": [],
             "tmdb_id": None,
             "is_china_film": False,
         }
@@ -119,6 +125,8 @@ class PreviewMetaFetcher:
         # 2) Serper 搜索补齐：先用便宜通道补缺。
         # 注意：_collect_serper_snippets 内部已实现“收齐即停”，不会盲目跑满预算。
         snippets = self._collect_serper_snippets(name, lock_original_title, result=result)
+        # 透传给 writer 作为最终兜底生成 hook 的上下文，不在这里裁剪语义字段。
+        result["hook_snippets"] = snippets[:8]
 
         # 3) Gemini Grounding 最终兜底：仅在仍有必填缺失时触发。
         if self.max_gemini_grounding > 0 and self.gemini_key:
@@ -134,6 +142,7 @@ class PreviewMetaFetcher:
                     f"      🌐 [Gemini] 第 {attempts}/{self.max_gemini_grounding} 次联网补齐: 缺 {', '.join(hard_missing)}"
                 )
                 gemini_fields = self._fetch_with_gemini(name, lock_original_title, result)
+                gemini_fields = self._log_valid_gemini_hook(gemini_fields, source="Gemini")
                 self._merge_missing(result, gemini_fields)
 
         # 3.5) Gemini 专项补写噱头（非熔断路径）
@@ -144,6 +153,7 @@ class PreviewMetaFetcher:
                     f"      🌐 [Gemini-Hook] 第 {attempt}/{self.gemini_hook_attempts} 次尝试补写噱头..."
                 )
                 gemini_fields = self._fetch_with_gemini(name, lock_original_title, result)
+                gemini_fields = self._log_valid_gemini_hook(gemini_fields, source="Gemini-Hook")
                 self._merge_missing(result, gemini_fields)
                 if self._normalize_hook(result.get("hook", "")):
                     print("      ✅ [Gemini-Hook] 噱头补写成功。")
@@ -180,11 +190,17 @@ class PreviewMetaFetcher:
                 or (lock_original_title or "").strip()
             )
 
-        # 最终必填校验：任何缺失都会在上游终止整夹。
-        # 这里是整条采集链的最终闸门，确保 Writer/Visual 接收到的是可发布数据。
-        missing_final = self._collect_required_missing(result, lock_original_title)
+        # 最终必填校验（meta 阶段）：
+        # 为保证 writer 的 _ensure_hook 能执行，这里不因 hook 缺失提前熔断。
+        missing_final = [
+            x
+            for x in self._collect_required_missing(result, lock_original_title)
+            if x != "hook"
+        ]
         if missing_final:
             raise ValueError("缺少必填字段: " + ", ".join(missing_final))
+        if not result.get("hook"):
+            print("      ⚠️ [Meta-Hook] 当前仍无合规噱头，将在 Writer 阶段执行最终兜底。")
 
         return result
 
@@ -472,8 +488,10 @@ class PreviewMetaFetcher:
 
         规则:
         1) release_date 必须为 YYYY-MM-DD，拿不到则空字符串。
-        2) hook 为中文噱头短句，6-22字，不含“炸裂”“必看”。
-        3) 不确定的字段返回空字符串。
+        2) hook 为中文噱头短句，字数 {self.hook_min_len}-{self.hook_max_len}，
+           且不含以下禁用词：{",".join(self.hook_forbidden)}。
+        3) hook 句末的 。 . , ， 不计入字数，输出前请自行去掉句末标点。
+        4) 不确定的字段返回空字符串。
 
         片段:
         {chr(10).join(context)}
@@ -517,8 +535,10 @@ class PreviewMetaFetcher:
 
 要求:
 1) release_date 输出 YYYY-MM-DD。
-2) hook 输出 6-22 字中文短句，禁用“炸裂”“必看”。
-3) 不确定则留空。
+2) hook 输出 {self.hook_min_len}-{self.hook_max_len} 字中文短句，
+   禁用词：{",".join(self.hook_forbidden)}。
+3) hook 句末的 。 . , ， 不计入字数，输出前请去掉句末标点。
+4) 不确定则留空。
 """
         try:
             url = (
@@ -553,15 +573,21 @@ class PreviewMetaFetcher:
             return {}
 
     def _generate_hookline(self, movie: dict, snippets: list) -> str:
-        """在已有事实基础上生成噱头，结果仍会走 _normalize_hook 校验。"""
+        """
+        在已有事实基础上生成噱头（带失败原因反馈重试）。
+
+        约束:
+        1) 句末 。 . , ， 在计数前会剔除，不计入长度。
+        2) 必须通过清洗校验才算成功。
+        """
         snippet_text = ""
         if snippets:
             snippet_text = "\n".join(
                 [f"- {s.get('title','')} | {s.get('snippet','')}" for s in snippets[:8]]
             )
 
-        prompt = f"""
-请基于以下电影信息，写一句吸引人的“新片速递噱头”：
+        base_prompt = f"""
+请基于以下电影信息，先挑选出其中 1-2 个你认为最有噱头的点，再生成一句“新片速递噱头”。
 电影名：{movie.get('name','')}
 原名：{movie.get('original_title','')}
 类型：{movie.get('genres','')}
@@ -571,13 +597,46 @@ class PreviewMetaFetcher:
 补充片段：
 {snippet_text}
 
-要求：
+参考示例（原文保留，不可删除或简化，不要原句照抄）：
+{self.hook_reference_examples}
+
+硬性要求：
 1) 只输出一句中文短句。
-2) 字数 6-22。
-3) 禁用词：炸裂、必看。
+2) 清洗后字数必须在 {self.hook_min_len}-{self.hook_max_len}。
+3) 句末的 。 . , ， 不计入字数（并需在最终结果里去掉）。
+4) 禁用词：{",".join(self.hook_forbidden)}。
+5) 禁止输出任何解释、前后缀、编号。
+6) 内容只围绕你选出的 1-2 个噱头点，禁止把多条信息硬拼在一句里。
 """
-        raw = self.brain.think(prompt, system_prompt="你是宣发文案编辑，只输出一句话。")
-        return self._normalize_hook(raw or "")
+
+        feedback_block = ""
+        for attempt in range(1, self.hook_retry_times + 1):
+            prompt = base_prompt
+            if feedback_block:
+                prompt += (
+                    "\n\n【上一次结果不合格，必须修正后重写】\n"
+                    f"{feedback_block}\n"
+                    "请严格按上方硬性要求重写，仅输出一句噱头。"
+                )
+
+            raw = self.brain.think(prompt, system_prompt="你是电影宣发编辑，只输出一句话。")
+            cleaned, reasons = self._validate_hook_candidate(raw or "")
+            if cleaned:
+                print(f"      ✅ [Meta-Hook] 合规噱头: {cleaned}")
+                return cleaned
+
+            reason_text = "；".join(reasons) if reasons else "空内容"
+            prev_text = self._clean_hook_raw(raw or "")
+            print(
+                f"      ⚠️ [Meta-Hook] 第 {attempt}/{self.hook_retry_times} 次失败: {reason_text} "
+                f"| 原输出: {prev_text or '(空)'}"
+            )
+            feedback_block = (
+                f"上一版噱头：{prev_text or '(空)'}\n"
+                f"不合格原因：{reason_text}"
+            )
+
+        return ""
 
     def _collect_required_missing(self, movie: dict, lock_original_title: str | None) -> list:
         """
@@ -640,6 +699,26 @@ class PreviewMetaFetcher:
                 if not self._normalize_hook(str(current)) and self._normalize_hook(str(value)):
                     target[k] = value
 
+    def _log_valid_gemini_hook(self, fields: dict, source: str) -> dict:
+        """
+        仅在 Gemini 返回的 hook 通过校验时打印日志。
+        失败场景不打印，避免日志噪音。
+        """
+        if not isinstance(fields, dict):
+            return {}
+
+        if "hook" not in fields:
+            return fields
+
+        cleaned, _ = self._validate_hook_candidate(fields.get("hook", ""))
+        if cleaned:
+            fields["hook"] = cleaned
+            print(f"      ✅ [{source}] 合规噱头: {cleaned}")
+        else:
+            # 保证无效 hook 不参与后续合并
+            fields["hook"] = ""
+        return fields
+
     def _normalize_date(self, raw: str) -> str:
         """日期标准化为 YYYY-MM-DD；无法识别则返回空字符串。"""
         if not raw:
@@ -655,16 +734,40 @@ class PreviewMetaFetcher:
         return f"{int(y):04d}-{int(mo):02d}-{int(d):02d}"
 
     def _normalize_hook(self, raw: str) -> str:
-        """噱头合法性校验（长度 + 禁词）。不合法返回空字符串。"""
-        text = str(raw or "").strip()
-        text = text.replace("“", "").replace("”", "").replace('"', "").strip()
+        """统一清洗并校验 hook；不合格返回空字符串。"""
+        cleaned, _ = self._validate_hook_candidate(raw)
+        return cleaned
+
+    def _validate_hook_candidate(self, raw: str) -> tuple[str, list[str]]:
+        """清洗并校验 hook，返回 (cleaned_hook, reasons)。"""
+        reasons = []
+        text = self._clean_hook_raw(raw)
+        text = re.sub(r"[。.,，]+$", "", text).strip()
+
         if not text:
-            return ""
-        if any(w in text for w in self.hook_forbidden):
-            return ""
-        if len(text) < self.hook_min_len or len(text) > self.hook_max_len:
-            return ""
-        return text
+            reasons.append("空内容")
+            return "", reasons
+
+        hit_words = [w for w in self.hook_forbidden if w and w in text]
+        if hit_words:
+            reasons.append("命中禁用词: " + ",".join(hit_words))
+
+        text_len = len(text)
+        if text_len < self.hook_min_len or text_len > self.hook_max_len:
+            reasons.append(
+                f"长度不合规: {text_len}（要求 {self.hook_min_len}-{self.hook_max_len}）"
+            )
+
+        if reasons:
+            return "", reasons
+        return text, []
+
+    def _clean_hook_raw(self, raw: str) -> str:
+        """基础清洗：去代码块、引号与换行。"""
+        text = str(raw or "").strip()
+        text = text.replace("```", "").replace("`", "").strip()
+        text = text.replace("“", "").replace("”", "").replace('"', "").strip()
+        return text.replace("\n", "").strip()
 
     def _normalize_region_name(self, raw: str) -> str:
         """地区名标准化：支持 ISO 两位码，并统一港澳台命名。"""
