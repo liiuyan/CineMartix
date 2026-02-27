@@ -10,8 +10,8 @@ class PreviewVisualAgent:
     🎨 新片速递视觉 Agent
 
     sub_mode=landscape:
-    1) 横图渲染 16:9（不足则居中裁剪）
-    2) 每 3 张拼接 16:27，余数单图独立输出
+    1) 横图渲染（默认 16:9；开关可切 9:4）
+    2) 每 3 张拼接（默认 16:27；开关可切 3:4）
     3) 可配置追加渲染单图与原图
 
     sub_mode=poster:
@@ -25,7 +25,7 @@ class PreviewVisualAgent:
         self.sub_mode = getattr(config.Strategy.Preview, "SUB_MODE", "landscape")
 
         # 发布图扩展策略（仅 landscape 生效）:
-        # append_rendered_details=True  => 在末尾追加渲染后的单图(16:9)
+        # append_rendered_details=True  => 在末尾追加渲染后的单图(比例受开关控制)
         # append_original_images=True   => 在末尾追加输入原图
         self.append_rendered_details = bool(
             getattr(config.Strategy.Preview, "APPEND_RENDERED_DETAILS", True)
@@ -34,9 +34,24 @@ class PreviewVisualAgent:
             getattr(config.Strategy.Preview, "APPEND_ORIGINAL_IMAGES", True)
         )
 
+        # [新增] preview landscape 渲染比例开关：
+        # False => 16:9 单图 + 16:27 拼接（保持现状）
+        # True  => 9:4 单图 + 3:4 拼接（仅 landscape 生效）
+        self.landscape_use_9_4_render = bool(
+            getattr(config.Strategy.Preview, "LANDSCAPE_USE_9_4_RENDER", False)
+        )
+        if self.landscape_use_9_4_render:
+            # 2160x960 为精确 9:4；三图拼接后 2160x2880 为精确 3:4
+            self.render_width = 2160
+            self.render_height = 960
+        else:
+            # 保持旧规格，避免已有任务视觉结果变化
+            self.render_width = 1920
+            self.render_height = 1080
+
         # 统一维护“海报文字层”样式，避免在渲染流程里散落魔法数字。
         # 坐标体系:
-        # - 基准画布为 1920x1080
+        # - 基准画布为 render_width x render_height（默认 1920x1080）
         # - x/y 使用左上角坐标
         # 字段说明:
         # - size: 字号(px)
@@ -123,6 +138,8 @@ class PreviewVisualAgent:
             return final_paths
 
         # landscape 子模式：需要生成 output 目录保存中间产物与拼接图。
+        render_mode = "9:4→3:4" if self.landscape_use_9_4_render else "16:9→16:27"
+        print(f"   🧭 landscape 渲染比例模式: {render_mode}")
         os.makedirs(output_dir, exist_ok=True)
 
         rendered_canvases = []
@@ -136,7 +153,7 @@ class PreviewVisualAgent:
                 return []
             rendered_canvases.append(canvas)
 
-            # 渲染后的 16:9 单图先落盘，后续是否发布由开关决定。
+            # 渲染后的单图先落盘（比例由开关决定），后续是否发布由开关决定。
             detail_path = os.path.join(output_dir, f"preview_detail_{i+1}.jpg")
             canvas.save(detail_path, quality=95)
             rendered_paths.append(detail_path)
@@ -149,11 +166,15 @@ class PreviewVisualAgent:
             group_index += 1
             group = rendered_canvases[i : i + 3]
             if len(group) == 3:
-                # 1920x3240 = 16:27，适配你当前长图方案
-                long_img = Image.new("RGB", (1920, 3240), color="black")
+                # 按当前单图尺寸拼接 3 张；开关开启时得到 3:4 长图
+                long_img = Image.new(
+                    "RGB",
+                    (self.render_width, self.render_height * 3),
+                    color="black",
+                )
                 long_img.paste(group[0], (0, 0))
-                long_img.paste(group[1], (0, 1080))
-                long_img.paste(group[2], (0, 2160))
+                long_img.paste(group[1], (0, self.render_height))
+                long_img.paste(group[2], (0, self.render_height * 2))
                 path = os.path.join(output_dir, f"preview_poster_{group_index}.jpg")
                 long_img.save(path, quality=95)
                 final_paths.append(path)
@@ -188,14 +209,14 @@ class PreviewVisualAgent:
 
     def _render_single_image(self, movie: dict) -> Image.Image | None:
         """
-        渲染单张 16:9 图：
+        渲染单张图（默认 16:9；开关开启时 9:4）：
         - 底部自下而上: 噱头 / 英文原名+日期 / 中文名
         """
         try:
             with Image.open(movie["path"]) as img:
-                # 无论输入比例如何，统一裁剪到 16:9。
+                # 先按目标比例裁剪，再叠字，避免后裁剪截断文字。
                 img = img.convert("RGB")
-                canvas = self._center_crop_to_16_9(img)
+                canvas = self._center_crop_to_render_ratio(img)
 
             draw = ImageDraw.Draw(canvas)
 
@@ -231,7 +252,7 @@ class PreviewVisualAgent:
                 cfg_sub_dynamic, h_sub = self._fit_text_size_within_width(
                     draw, text_hook, cfg_sub, right_margin, "噱头"
                 )
-                y_sub = 1080 - bl["margin_bottom"] - h_sub
+                y_sub = self.render_height - bl["margin_bottom"] - h_sub
 
             if merged_title_en:
                 cfg_en_dynamic, h_en = self._fit_text_size_within_width(
@@ -241,7 +262,7 @@ class PreviewVisualAgent:
                     y_en = y_sub - gap_en_sub - h_en
                 else:
                     # 仅英文/日期时，保持贴近底部显示，避免空画面。
-                    y_en = 1080 - bl["margin_bottom"] - h_en
+                    y_en = self.render_height - bl["margin_bottom"] - h_en
 
             if text_cn:
                 cfg_cn_dynamic, h_cn = self._fit_text_size_within_width(
@@ -253,7 +274,7 @@ class PreviewVisualAgent:
                     y_cn = y_sub - bl["gap_en_cn"] - h_cn
                 else:
                     # 仅中文名时，落到最底部安全线，避免空画面。
-                    y_cn = 1080 - bl["margin_bottom"] - h_cn
+                    y_cn = self.render_height - bl["margin_bottom"] - h_cn
 
             if text_hook and y_sub is not None:
                 self._render_text_element(canvas, draw, text_hook, cfg_sub_dynamic, y_sub)
@@ -328,14 +349,16 @@ class PreviewVisualAgent:
         else:
             draw.text((x, y), text, font=font, fill=color, anchor="lt")
 
-    def _center_crop_to_16_9(self, img: Image.Image) -> Image.Image:
-        """将任意比例图片居中裁剪并缩放为 1920x1080。"""
+    def _center_crop_to_render_ratio(self, img: Image.Image) -> Image.Image:
+        """按当前模式把输入图裁剪并缩放到目标尺寸（16:9 或 9:4）。"""
         w, h = img.size
-        target_ratio = 16 / 9
+        target_ratio = self.render_width / self.render_height
         current_ratio = w / h
 
         if abs(current_ratio - target_ratio) < 0.01:
-            return img.resize((1920, 1080), Image.Resampling.LANCZOS)
+            return img.resize(
+                (self.render_width, self.render_height), Image.Resampling.LANCZOS
+            )
 
         if current_ratio > target_ratio:
             new_w = int(h * target_ratio)
@@ -346,7 +369,7 @@ class PreviewVisualAgent:
             top = (h - new_h) // 2
             img = img.crop((0, top, w, top + new_h))
 
-        return img.resize((1920, 1080), Image.Resampling.LANCZOS)
+        return img.resize((self.render_width, self.render_height), Image.Resampling.LANCZOS)
 
     def _text_height(self, draw: ImageDraw, text: str, font: ImageFont.FreeTypeFont) -> int:
         """获取单行文本像素高度，用于自下而上排版计算。"""
@@ -373,7 +396,7 @@ class PreviewVisualAgent:
 
         dynamic_cfg = cfg.copy()
         x = int(dynamic_cfg.get("x", 0))
-        max_width = 1920 - x - int(right_margin)
+        max_width = self.render_width - x - int(right_margin)
         if max_width <= 0:
             raise ValueError(f"{label} 可用宽度非法: max_width={max_width}")
 

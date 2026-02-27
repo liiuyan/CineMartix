@@ -236,9 +236,10 @@ python3 main.py
 
 ### 3) 视觉输出
 
-- 单图渲染 16:9
-- 每 3 张拼接 16:27
+- 默认单图渲染 16:9；当 `Strategy.Visual.COLLECTION_USE_9_4_RENDER=True` 时改为 9:4
+- 默认每 3 张拼接 16:27；当 `Strategy.Visual.COLLECTION_USE_9_4_RENDER=True` 时改为 3:4
 - 余数单图独立输出
+- 当 `DETAIL_IMAGE_TYPE="rendered"` 时，追加的渲染单图比例会跟随上面的开关（16:9 或 9:4）；`original` 原图追加不受影响
 - 发布成功归档到：`资料/collections/_done/`
 
 ---
@@ -352,15 +353,15 @@ preview 还分两种子模式：
 
 #### `landscape`
 
-- 非 16:9 会居中裁剪到 16:9
+- 默认会居中裁剪到 16:9；当 `Strategy.Preview.LANDSCAPE_USE_9_4_RENDER=True` 时改为 9:4
 - 左下角自下而上渲染：`噱头 -> 原名与日期 -> 中文名`（从上到下即：中文名、原名与日期、噱头）
 - 中文名 / 原名与日期 / 噱头均支持单行自适应缩放；若缩到最小字号仍超宽会触发渲染报错（熔断）
 - 原名与日期合并规则：
   - 原名+日期都有：`原名 | 日期`
   - 仅原名：`原名`
   - 仅日期：`日期`（不会出现前导 `|2026.xx.xx`）
-- 每 3 张拼接一张 16:27
-- 可配置是否追加渲染单图、原图
+- 默认每 3 张拼接一张 16:27；当 `Strategy.Preview.LANDSCAPE_USE_9_4_RENDER=True` 时改为 3:4
+- 可配置是否追加渲染单图、原图：渲染单图比例跟随开关（16:9 或 9:4），原图追加不受影响
 - 若存在封面图（`|0/｜0`），会渲染为 3:4（`1200x1600`）并输出 `output/preview_cover.jpg`
 - 最终发布序列中，封面图固定插入第 1 张（不受拼接/追加策略影响）
 
@@ -458,6 +459,7 @@ class Strategy:
         CLIP_THRESHOLD = 0.75
         APPEND_DETAIL_IMAGES = True
         DETAIL_IMAGE_TYPE = "original"   # original / rendered
+        COLLECTION_USE_9_4_RENDER = False  # False: 16:9→16:27, True: 9:4→3:4
 
     class Writer:
         ENABLE_TITLE_EMOJI = True
@@ -516,9 +518,32 @@ class Strategy:
         SUMMARY_REWRITE_RETRIES = 6
 
         APPEND_RENDERED_DETAILS = False
+        LANDSCAPE_USE_9_4_RENDER = False  # False: 16:9→16:27, True: 9:4→3:4
         APPEND_ORIGINAL_IMAGES = True
         COVER_EN_NAME_RETRY_TIMES = 3
 ```
+
+### 4) config 结构说明（本轮同步）
+
+- `config.py` 已按职责分为 `System / Writer / Visual / Preview` 四组，便于按赛道调参
+- 配置字段名与默认值保持兼容（无需改动现有业务代码调用）
+- 本轮新增两个比例开关：`COLLECTION_USE_9_4_RENDER`、`LANDSCAPE_USE_9_4_RENDER`
+- 未使用配置项 `LOCAL_FONT_PATH` 已移除，避免误导
+- 注释已恢复为“可操作型说明”，短说明优先同行注释，便于快速阅读
+
+### 5) Prompt 管理建议（建议方案，未全量落地）
+
+当前已落地：
+- `preview` 的 hook 语料已外置到 `prompts/preview/*.txt`
+
+建议继续外置（优先级从高到低）：
+- `agents/writer.py`：`AESTHETICS_PROTOCOL`、主生成 Prompt、标题重写 Prompt
+- `agents/collection_writer.py`：`MAGAZINE_AESTHETICS_PROTOCOL`、`mode_one/two/three` 大模板
+- `agents/preview_meta.py` 与 `agents/preview_writer.py`：hook 生成大模板（两端保持同口径）
+- `agents/preview_meta.py`：Serper 抽取 Prompt、Gemini Grounding Prompt
+
+建议暂时保留内联：
+- 明显短小且与运行时变量强绑定的 Prompt（改动频率低、抽离收益小）
 
 ---
 
@@ -558,6 +583,15 @@ class Strategy:
 - 日志会输出每轮实际字数，并提示下一轮“写更长”或“写更短”
 - 可调 `SUMMARY_TARGET_*`、`SUMMARY_*` 或 `SUMMARY_REWRITE_RETRIES`
 - 或关闭 `SHOW_SUMMARY_BLOCK`
+
+补充：降低重写次数的建议策略（未落地）
+
+- 问题根因：即使提示“写到 N 字”，模型也常把 `N` 当软约束，导致反复重试
+- 建议改为“预算优先”：
+  - 先扣除片单/CTA/tags 长度，计算简介总预算，再按电影分配目标
+  - 先生成，再按偏差做定向修正（小偏差微调，大偏差整段重写）
+  - 最后仅对最长的 1-2 条简介做全局兜底压缩
+- 约束不变：始终保持 `content + tags <= 990`
 
 ### 3. 程序卡在终端等待输入
 

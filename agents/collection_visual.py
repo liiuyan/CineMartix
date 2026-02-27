@@ -7,7 +7,9 @@ class CollectionVisualAgent:
     """
     🎨 合集视觉工厂 (CollectionVisualAgent)
     
-    负责将收集到的剧照、台词、评分进行 16:9 裁剪和 16:27 的电影感海报拼接。
+    负责将收集到的剧照、台词、评分进行裁剪渲染并三图拼接。
+    - 默认: 单图 16:9，三图拼接 16:27
+    - 开关开启: 单图 9:4，三图拼接 3:4
     特色功能：
     1. 动态缩放标题，防溢出。
     2. 视觉平衡折行算法 (倒三角排版，Top-Heavy Ratio)。
@@ -40,6 +42,21 @@ class CollectionVisualAgent:
         self.COLOR_WHITE = "#FFFFFF"
         self.COLOR_SHADOW = "#000000"
 
+        # [新增] 合集渲染比例开关：
+        # False => 16:9 单图 + 16:27 拼接（保持现状）
+        # True  => 9:4 单图 + 3:4 拼接（贴合小红书封面展示比例）
+        self.use_9_4_render = bool(
+            getattr(config.Strategy.Visual, "COLLECTION_USE_9_4_RENDER", False)
+        )
+        if self.use_9_4_render:
+            # 2160x960 为精确 9:4；3 张拼接后 2160x2880 为精确 3:4
+            self.render_width = 2160
+            self.render_height = 960
+        else:
+            # 保持原有像素规格，避免旧工作流受影响
+            self.render_width = 1920
+            self.render_height = 1080
+
     def run(self, movies: list, folder_path: str) -> list:
         """
         执行视觉渲染与拼接逻辑。
@@ -51,7 +68,9 @@ class CollectionVisualAgent:
         Returns:
             list: 生成好的所有长图/横图的绝对路径列表。
         """
+        render_mode = "9:4→3:4" if self.use_9_4_render else "16:9→16:27"
         print("\n🎨 [4/5 CollectionVisualAgent] 正在启动电影感排版引擎...")
+        print(f"   🧭 渲染比例模式: {render_mode}")
         
         output_dir = os.path.join(folder_path, "output")
         os.makedirs(output_dir, exist_ok=True)
@@ -72,17 +91,22 @@ class CollectionVisualAgent:
         final_images_paths = []
         
         # 2. 动态成组拼接 (3合1长图，余数保留横图)
-        print("\n   🧩 开始拼接 16:27 电影感长图...")
+        long_ratio_label = "3:4" if self.use_9_4_render else "16:27"
+        print(f"\n   🧩 开始拼接 {long_ratio_label} 电影感长图...")
         for i in range(0, len(rendered_canvases), 3):
             group = rendered_canvases[i:i+3]
             group_index = (i // 3) + 1
             
             if len(group) == 3:
-                # 拼接成 16:27 长图
-                long_img = Image.new('RGB', (1920, 3240), color='black')
+                # 按当前单图尺寸拼接 3 张，开关开启时可得到 3:4 长图
+                long_img = Image.new(
+                    "RGB",
+                    (self.render_width, self.render_height * 3),
+                    color="black",
+                )
                 long_img.paste(group[0], (0, 0))
-                long_img.paste(group[1], (0, 1080))
-                long_img.paste(group[2], (0, 2160))
+                long_img.paste(group[1], (0, self.render_height))
+                long_img.paste(group[2], (0, self.render_height * 2))
                 
                 save_path = os.path.join(output_dir, f"collection_poster_{group_index}.jpg")
                 long_img.save(save_path, quality=95)
@@ -118,12 +142,12 @@ class CollectionVisualAgent:
         return final_images_paths
 
     def _render_single_movie(self, movie: dict) -> Image.Image | None:
-        """渲染单张 1920x1080 的带字剧照"""
+        """渲染单张带字剧照（尺寸由开关决定：16:9 或 9:4）。"""
         try:
-            # 1. 裁剪至标准的 1920x1080 (16:9)
+            # 1. 先按当前模式裁剪底图，再叠加文字，避免后裁剪截断文字
             with Image.open(movie['path']) as img:
                 img = img.convert('RGB')
-                canvas = self._center_crop_to_16_9(img)
+                canvas = self._center_crop_to_render_ratio(img)
                 
             draw = ImageDraw.Draw(canvas)
             
@@ -135,7 +159,7 @@ class CollectionVisualAgent:
 
             # --- 顶部区域渲染 (Title & Score) ---
             title_text = f"《{movie['name']}》"
-            max_title_w = 1920 - (self.MARGIN_LEFT_TITLE * 2)
+            max_title_w = self.render_width - (self.MARGIN_LEFT_TITLE * 2)
             title_h = self._draw_title_auto_scale(draw, title_text, self.MARGIN_LEFT_TITLE, self.MARGIN_TITLE_TOP, max_title_w, config.FONT_TITLE_PATH, self.SIZE_TITLE, canvas)
             
             # 绘制评分 (跳过空值)
@@ -151,8 +175,8 @@ class CollectionVisualAgent:
 
             # --- 底部区域渲染 (Quote & Summary) ---
             # 从下往上推算高度，确保绝对的安全距离
-            center_x = 1920 // 2
-            bottom_limit = 1080 - self.MARGIN_BOTTOM_BASE
+            center_x = self.render_width // 2
+            bottom_limit = self.render_height - self.MARGIN_BOTTOM_BASE
             
             # 1. 清洗与绘制简介
             raw_summary = movie.get('summary', '')
@@ -182,7 +206,7 @@ class CollectionVisualAgent:
             return 0
             
         # [修改] 使用传入的 margin_side 动态计算当前文本块的最大宽度
-        max_width = 1920 - (margin_side * 2)
+        max_width = self.render_width - (margin_side * 2)
         lines = self._inverted_pyramid_wrap(text, font, draw, max_width)
         
         # 计算总高度
@@ -290,14 +314,14 @@ class CollectionVisualAgent:
         else:
             draw.text((x, y), text, font=font, fill=color, anchor=anchor)
 
-    def _center_crop_to_16_9(self, img: Image.Image) -> Image.Image:
-        """居中裁剪任意图片至 1920x1080 (16:9)"""
+    def _center_crop_to_render_ratio(self, img: Image.Image) -> Image.Image:
+        """按当前配置居中裁剪并缩放到底图尺寸（16:9 或 9:4）。"""
         w, h = img.size
-        target_ratio = 16 / 9
+        target_ratio = self.render_width / self.render_height
         current_ratio = w / h
         
         if abs(current_ratio - target_ratio) < 0.01:
-            return img.resize((1920, 1080), Image.Resampling.LANCZOS)
+            return img.resize((self.render_width, self.render_height), Image.Resampling.LANCZOS)
             
         if current_ratio > target_ratio:
             new_w = int(h * target_ratio)
@@ -308,7 +332,7 @@ class CollectionVisualAgent:
             top = (h - new_h) // 2
             img = img.crop((0, top, w, top + new_h))
             
-        return img.resize((1920, 1080), Image.Resampling.LANCZOS)
+        return img.resize((self.render_width, self.render_height), Image.Resampling.LANCZOS)
 
     def _safe_load_font(self, path: str, size: int) -> ImageFont.FreeTypeFont:
         """安全加载字体，失败则兜底返回系统默认字体"""
