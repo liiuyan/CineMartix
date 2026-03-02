@@ -223,5 +223,77 @@
     "rotten_tomatoes": "56%",
     "metacritic": "49",
     "douban": "8.4"
+  },
+  "爱在黎明破晓前": {
+    "imdb": "8.1",
+    "rotten_tomatoes": "100%",
+    "metacritic": "79",
+    "douban": "8.8"
+  },
+  "爱在日落黄昏时": {
+    "imdb": "8.1",
+    "rotten_tomatoes": "94%",
+    "metacritic": "91",
+    "douban": "8.9"
+  },
+  "爱在午夜降临前": {
+    "imdb": "7.9",
+    "rotten_tomatoes": "98%",
+    "metacritic": "94",
+    "douban": "8.9"
+  },
+  "白日梦想家": {
+    "imdb": "7.3",
+    "rotten_tomatoes": "52%",
+    "metacritic": "54",
+    "douban": "8.6"
+  },
+  "幸福终点站": {
+    "imdb": "7.4",
+    "rotten_tomatoes": "61%",
+    "metacritic": "55",
+    "douban": "8.8"
+  },
+  "心灵捕手": {
+    "imdb": "8.3",
+    "rotten_tomatoes": "97%",
+    "metacritic": "71",
+    "douban": "9.0"
+  },
+  "肖申克的救赎": {
+    "imdb": "9.3",
+    "rotten_tomatoes": "89%",
+    "metacritic": "82",
+    "douban": "9.7"
+  },
+  "阿甘正传": {
+    "imdb": "8.8",
+    "rotten_tomatoes": "75%",
+    "metacritic": "82",
+    "douban": "9.5"
+  },
+  "放牛班的春天": {
+    "imdb": "7.8",
+    "rotten_tomatoes": "68%",
+    "metacritic": "56",
+    "douban": "9.3"
+  },
+  "无耻混蛋": {
+    "imdb": "8.4",
+    "rotten_tomatoes": "89%",
+    "metacritic": "69",
+    "douban": "8.7"
+  },
+  "搏击俱乐部": {
+    "imdb": "8.8",
+    "rotten_tomatoes": "81%",
+    "metacritic": "67",
+    "douban": "9.0"
+  },
+  "燃情岁月｜Legends of the Fall": {
+    "imdb": "7.5",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "45",
+    "douban": "8.7"
   }
 }

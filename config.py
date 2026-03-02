@@ -16,12 +16,12 @@ class Strategy:
     class System:
         """[v4.0 新增] 系统运行模式与全局配置"""
         # 运行模式选择: "single" (单片模式) / "collection" (合集盘点模式) / "preview" (新片速递模式)
-        RUN_MODE: str = "preview"
+        RUN_MODE: str = "collection"
 
         # [新增] 发布前决策菜单总开关
         # True: 启用发布前菜单（single=4选项，collection/preview=3选项）
         # False: 直接立即发布（不弹菜单）
-        ENABLE_PUBLISH_DECISION_MENU: bool = False
+        ENABLE_PUBLISH_DECISION_MENU: bool = True
 
         # 本地分数兜底开关 (仅对合集模式有效)
         USE_LOCAL_SCORES: bool = True
@@ -70,12 +70,12 @@ class Strategy:
 
         # [新增] 合集模式正文引导语控制 (仅 collection 模式使用)
         COLLECTION_SHOW_CTA: bool = True
-        COLLECTION_CTA_TEXT: str = "欢迎在评论区补充你喜欢的电影，后续会持续为大家整理优秀的电影片单"
+        COLLECTION_CTA_TEXT: str = "欢迎在评论区补充你喜欢的电影～"
 
         # [新增] mode_two 的电影简介长度与重写控制 (仅 collection 模式使用)
         COLLECTION_SUMMARY_MIN_LEN: int = 55
         COLLECTION_SUMMARY_MAX_LEN: int = 80
-        COLLECTION_SUMMARY_REWRITE_RETRIES: int = 3
+        COLLECTION_SUMMARY_REWRITE_RETRIES: int = 10
 
         # [新增] mode_one 的主题发散字数控制 (仅 collection 模式使用)
         # 不在该区间会触发重写
@@ -128,7 +128,7 @@ class Strategy:
         # [新增] 合集渲染比例开关
         # False: 保持原逻辑（单图 16:9，3图拼接后为 16:27）
         # True: 单图改为 9:4，3图拼接后为 3:4（更贴近小红书封面显示比例）
-        COLLECTION_USE_9_4_RENDER: bool = False
+        COLLECTION_USE_9_4_RENDER: bool = True
 
     class Preview:
         """[v5.0 新增] 新片速递模式配置 (Preview Mode)"""

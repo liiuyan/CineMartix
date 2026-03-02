@@ -363,6 +363,8 @@ preview 还分两种子模式：
 - 默认每 3 张拼接一张 16:27；当 `Strategy.Preview.LANDSCAPE_USE_9_4_RENDER=True` 时改为 3:4
 - 可配置是否追加渲染单图、原图：渲染单图比例跟随开关（16:9 或 9:4），原图追加不受影响
 - 若存在封面图（`|0/｜0`），会渲染为 3:4（`1200x1600`）并输出 `output/preview_cover.jpg`
+- 封面主标题固定三行；纵向推进采用“当前行字号 + `line_spacing`”的层级排版逻辑（不是按真实文字高度），用于保留第一行更强的主视觉压场感
+- 标题行距参数当前在 `services/cover_renderer.py` 的 `CoverRenderer.cover_config["title"]["line_spacing"]` 中维护，默认 `20`
 - 最终发布序列中，封面图固定插入第 1 张（不受拼接/追加策略影响）
 
 #### `poster`
@@ -374,11 +376,20 @@ preview 还分两种子模式：
 #### 封面水印规则（`landscape/poster` 共用）
 
 - 水印数据来源：同任务目录下除封面外的电影条目
-- 每条默认显示 1 行中文电影名
+- 中文名支持自适应换行，最多 2 行
 - 英文名第 2 行显示条件：非中国电影 + 有 `original_title` + DeepSeek 判定为可展示英文名
+- 英文名支持自适应换行，最多 2 行
 - 非中国电影若只有非英文原名，不显示第 2 行
 - 中国电影不显示英文名
 - DeepSeek 判定失败会按重试配置重试，超限后回退为“不显示英文名”
+- 水印块内部参数当前维护在 `services/cover_renderer.py` 的 `CoverRenderer.cover_config["watermark"]`：
+  - 默认字号 `45`，统一缩字号最小下限 `30`
+  - 中文/英文块内部默认行间距 `8`
+  - 中文块与英文块之间默认间距 `12`
+  - 相邻电影条目的最小边缘间距 `24`
+  - 右侧留白当前为 `0`（即文本块可贴近画布右边界）
+- 相邻电影条目采用“边缘间距等距”排布：先测量每个条目的真实块高度，再在 `start_y ~ end_y` 之间平均分配剩余空间
+- 若总高度超出可用区域，会对所有水印统一缩字号；若缩到最小字号仍放不下，封面渲染会熔断失败
 
 ### 5) preview 特殊规则
 
@@ -528,6 +539,7 @@ class Strategy:
 - `config.py` 已按职责分为 `System / Writer / Visual / Preview` 四组，便于按赛道调参
 - 配置字段名与默认值保持兼容（无需改动现有业务代码调用）
 - 本轮新增两个比例开关：`COLLECTION_USE_9_4_RENDER`、`LANDSCAPE_USE_9_4_RENDER`
+- preview 封面标题/水印的精细排版参数当前未上提到 `config.py`，而是维护在 `services/cover_renderer.py` 的 `CoverRenderer.cover_config` 中，便于开发时直接微调
 - 未使用配置项 `LOCAL_FONT_PATH` 已移除，避免误导
 - 注释已恢复为“可操作型说明”，短说明优先同行注释，便于快速阅读
 
