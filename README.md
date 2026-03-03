@@ -47,7 +47,8 @@ agents/
 
 services/
   ├─ clip_engine.py          # CLIP 单例引擎
-  └─ cover_renderer.py       # 通用封面渲染器（preview 已接入）
+  ├─ cover_renderer.py       # 通用封面渲染器（preview 已接入）
+  └─ preview_cache.py        # preview 逐电影临时缓存管理器
 
 utils.py
   ├─ HistoryManager
@@ -90,6 +91,8 @@ little_red/
     │       └── poster/           # preview 竖海报归档
     ├── score/
     │   └── local_scores.json
+    ├── cache/
+    │   └── preview_cache.json     # preview 最近 5 次任务缓存
     └── fonts/
 ```
 
@@ -230,6 +233,7 @@ python3 main.py
 校验点：
 
 - `mode_two` 简介长度严格校验（配置区间，默认 55-80）
+- `mode_two` 的相邻两部电影简介之间会空 1 行，避免正文连成一整段
 - `mode_one` 发散段严格校验（配置区间，默认 250-600；超出区间会重写）
 - 标题 `<=20`
 - `正文 + tags <= 990`
@@ -266,8 +270,13 @@ preview 还分两种子模式：
 图片命名：
 
 - `电影名｜序号.jpg`
-- `电影名｜原名｜序号.jpg`
+- `电影名｜年份或原名｜序号.jpg`
 - `主标题第一行\n第二行\n第三行｜0.jpg`（封面图，兼容 `|0` 与 `｜0`）
+
+第二段自动识别：
+
+- 4 位合理年份 => 年份锁定
+- 否则 => 原名锁定
 
 封面命名细则（严格模式）：
 
@@ -317,6 +326,49 @@ preview 还分两种子模式：
 8. 进入 Writer 阶段后，`_ensure_hook()` 会做最终兜底与同口径重试（同样基于 `1-2` 个噱头点 + 示例）。
 9. Meta 阶段最终必填校验不会因 `hook` 缺失提前熔断；`hook` 最终由 Writer 阶段判定，失败才整夹熔断。
 
+#### 逐电影处理与临时缓存（本轮新增）
+
+preview 现在不是“先把所有电影整批查完再统一写文案”，而是改成了按电影逐部完成：
+
+1. 扫描任务并生成任务签名：
+   - `run_mode=preview`
+   - `sub_mode`
+   - `theme`
+   - `title`
+   - 排序后的 `movie_keys`
+2. 读取 `资料/cache/preview_cache.json`
+3. 对当前任务中的每一部电影：
+   - 若命中完整缓存，则直接复用该电影的数据
+   - 若未命中缓存，则对该电影执行完整采集与写作链路
+   - 只有当该电影的元数据、hook、summary（若开启）都完成后，才立即写入缓存
+4. 若在后续某部电影熔断：
+   - 前面已完成并写入缓存的电影会保留
+   - 当前失败这部不会写入缓存
+5. 下次再次运行同一任务时，只重查未完成的电影
+
+任务缓存匹配规则：
+
+- `run_mode` 必须是 `preview`
+- `sub_mode` 必须相同
+- `theme` 必须相同
+- `title` 必须相同
+- `movie_keys` 集合必须相同
+- 电影顺序不参与缓存匹配
+
+单片缓存匹配规则：
+
+- `movie_key` 优先级：
+  - `电影名｜year｜年份`
+  - `电影名｜original｜原名`
+  - 只有电影名时则用 `电影名`
+
+缓存范围：
+
+- 仅保留最近 `5` 次 preview 任务
+- 缓存文件路径：`资料/cache/preview_cache.json`
+- 只缓存“完整电影”，不缓存半成品
+- 不缓存 `path/index`，这两个字段每次都以当前任务扫描结果为准
+
 必填规则（当前实现）：
 
 - Meta 阶段硬必填：
@@ -344,10 +396,12 @@ preview 还分两种子模式：
   - 校验通过区间：`SUMMARY_MIN_LEN ~ SUMMARY_MAX_LEN`（仅超出该范围才触发重写）
   - 每轮都基于原始查询到的简介事实改写（不基于上一轮 AI 文本扩写/缩写）
   - 日志会打印每轮实际字数、目标区间和校验区间
+  - 正文里相邻两部电影的简介之间会空 1 行
 - 标签固定前三个：`新片速递`、`红书宝藏片单`、`电影推荐`
 - 再追加前 3 部电影名清洗后的 tags
 - `正文 + tags <= 990`
 - hook 禁用词与参考示例从文本文件读取：`prompts/preview/hook_forbidden_words.txt`、`prompts/preview/hook_reference_examples.txt`（文件缺失会熔断）
+- 每部电影完成后，日志会统一打印一次最终采用的噱头，避免多来源重复打印
 
 ### 4) 视觉处理
 
@@ -396,6 +450,7 @@ preview 还分两种子模式：
 - 发布成功后归档到 `资料/previews/_done/<sub_mode>/`
 - 不写 `history.json`
 - 不计入本地分数体系
+- 临时缓存保存在 `资料/cache/preview_cache.json`
 
 ---
 
@@ -532,6 +587,7 @@ class Strategy:
         LANDSCAPE_USE_9_4_RENDER = False  # False: 16:9→16:27, True: 9:4→3:4
         APPEND_ORIGINAL_IMAGES = True
         COVER_EN_NAME_RETRY_TIMES = 3
+        PREVIEW_CACHE_MAX_TASKS = 5
 ```
 
 ### 4) config 结构说明（本轮同步）
@@ -540,6 +596,7 @@ class Strategy:
 - 配置字段名与默认值保持兼容（无需改动现有业务代码调用）
 - 本轮新增两个比例开关：`COLLECTION_USE_9_4_RENDER`、`LANDSCAPE_USE_9_4_RENDER`
 - preview 封面标题/水印的精细排版参数当前未上提到 `config.py`，而是维护在 `services/cover_renderer.py` 的 `CoverRenderer.cover_config` 中，便于开发时直接微调
+- preview 临时缓存文件路径为 `资料/cache/preview_cache.json`
 - 未使用配置项 `LOCAL_FONT_PATH` 已移除，避免误导
 - 注释已恢复为“可操作型说明”，短说明优先同行注释，便于快速阅读
 
@@ -574,6 +631,7 @@ class Strategy:
 - collection 成功归档：`资料/collections/_done/`
 - preview 输出（landscape）：`资料/previews/<sub_mode>/<任务>/output/`
 - preview 成功归档：`资料/previews/_done/<sub_mode>/`
+- preview 临时缓存：`资料/cache/preview_cache.json`
 
 ---
 
@@ -585,10 +643,20 @@ class Strategy:
 
 - `RUN_MODE` 不是 `preview`
 - `SUB_MODE` 对应目录下没有符合 `主题｜标题` 的任务文件夹
-- 图片命名不符合严格规则（`电影名｜序号` / `电影名｜原名｜序号` / `主标题第一行\n第二行\n第三行｜0`）
+- 图片命名不符合严格规则（`电影名｜序号` / `电影名｜年份或原名｜序号` / `主标题第一行\n第二行\n第三行｜0`）
 - 同一任务目录出现多张 `|0/｜0` 封面图（会触发整夹跳过）
 
-### 2. preview 简介改写反复失败
+### 2. preview 缓存没有复用
+
+常见原因：
+
+- 当前任务的 `sub_mode`、`theme`、`title` 与缓存中的任务不一致
+- 当前任务的电影集合和缓存不一致（顺序不影响，但电影身份必须一致）
+- 同名电影的年份锁定/原名锁定不同，导致 `movie_key` 不同
+- 旧缓存不满足当前配置（例如之前没写简介，这次开启了 `SHOW_SUMMARY_BLOCK=True`），此时程序会只重查当前电影
+- 超过最近 `5` 次任务上限后，较旧的任务缓存会被自动淘汰
+
+### 3. preview 简介改写反复失败
 
 - 当前采用双区间：目标 `SUMMARY_TARGET_MIN_LEN~SUMMARY_TARGET_MAX_LEN`（默认 60-70），校验 `SUMMARY_MIN_LEN~SUMMARY_MAX_LEN`（默认 55-80）
 - 只要简介落在校验区间就会通过；只有超出校验区间才会继续重写
@@ -605,7 +673,7 @@ class Strategy:
   - 最后仅对最长的 1-2 条简介做全局兜底压缩
 - 约束不变：始终保持 `content + tags <= 990`
 
-### 3. 程序卡在终端等待输入
+### 4. 程序卡在终端等待输入
 
 - `ENABLE_PUBLISH_DECISION_MENU=True` 时，发布前会弹出决策菜单
 - `single` 下会出现 4 选项（放弃 / 改标题后发 / 立即 / 定时）

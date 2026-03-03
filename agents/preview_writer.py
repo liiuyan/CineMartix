@@ -80,39 +80,103 @@ class PreviewWriterAgent:
             return None
 
         for movie in movies:
-            # 先做规则层校验，任何失败都整夹熔断。
-            if not self._validate_required_fields(movie):
+            finalized = self.finalize_movie(movie)
+            if not finalized:
                 return None
+            movie.update(finalized)
 
-            # 噱头最终修正：空值/超限/禁词 -> 重写；失败则熔断
-            movie["hook"] = self._ensure_hook(movie)
-            if not movie["hook"]:
-                print(f"   ⛔ [熔断] 《{movie['name']}》噱头生成失败")
-                return None
-
-            # 简介块开启时：仅当超出校验区间才触发重写
-            if self.show_summary:
-                summary = self._rewrite_summary(movie["name"], movie.get("overview", ""))
-                if not summary:
-                    print(f"   ⛔ [熔断] 《{movie['name']}》简介改写未达标 ({self.summary_min}-{self.summary_max})")
-                    return None
-                movie["summary"] = summary
-            else:
-                movie["summary"] = ""
-
-            # 给视觉层准备统一字段
-            # preview_visual 只读取这些字段，不再重复推导。
-            movie["poster_date"] = movie.get("release_date", "").replace("-", ".")
-            movie["poster_title_en"] = movie.get("original_title", "")
-            movie["poster_title_cn"] = f"《{movie['name']}》"
-            movie["poster_hook"] = movie["hook"]
-
-        note_data = self._assemble_note(theme, title, movies)
+        note_data = self.build_note(theme, title, movies)
         if not note_data:
             return None
 
         print(f"   ✅ 新片速递正文生成完成: {len(note_data['content'])} 字")
         return {"note_data": note_data, "movies": movies}
+
+    def finalize_movie(self, movie: dict) -> dict | None:
+        """
+        按“单部电影”完成 preview 写作链路。
+
+        这个入口专门服务于新缓存流程：
+        1. 先校验电影是否具备继续写作的最小事实集；
+        2. 复用已有合规 hook/summary，避免重复调用模型；
+        3. 只在缺失或不合规时才补写该电影。
+
+        返回值语义：
+        - 返回 dict：这部电影已经达到“可直接参与最终发布组装”的完整状态；
+        - 返回 None：这部电影当前仍不完整，主流程应立即停止，且不要写入缓存。
+        """
+        movie_name = str(movie.get("name", "")).strip()
+        if not self._validate_required_fields(movie):
+            return None
+
+        # 噱头最终修正：空值/超限/禁词 -> 重写；失败则熔断
+        movie["hook"] = self._ensure_hook(movie)
+        if not movie["hook"]:
+            print(f"   ⛔ [熔断] 《{movie_name}》噱头生成失败")
+            return None
+
+        # 简介块开启时优先复用已有合规 summary，只有不合规时才重写。
+        if self.show_summary:
+            existing_summary = self._clean_plain_text(movie.get("summary", ""))
+            if self._is_summary_length_valid(existing_summary):
+                movie["summary"] = existing_summary
+                print(f"      ✅ 《{movie_name}》复用已有合规简介: {len(existing_summary)}字")
+            else:
+                summary = self._rewrite_summary(movie_name, movie.get("overview", ""))
+                if not summary:
+                    print(f"   ⛔ [熔断] 《{movie_name}》简介改写未达标 ({self.summary_min}-{self.summary_max})")
+                    return None
+                movie["summary"] = summary
+        else:
+            movie["summary"] = ""
+
+        # 给视觉层准备统一字段；这些字段命中缓存后也可直接复用。
+        movie["poster_date"] = movie.get("release_date", "").replace("-", ".")
+        movie["poster_title_en"] = movie.get("original_title", "")
+        movie["poster_title_cn"] = f"《{movie_name}》"
+        movie["poster_hook"] = movie["hook"]
+        return movie
+
+    def needs_meta_refresh(self, movie: dict) -> bool:
+        """
+        判断缓存电影是否缺少“当前配置下继续写作所需的基础事实集”。
+
+        作用：
+        - 支持“任务签名命中但设置变化”场景；
+        - 若旧缓存缺 overview / release_date / original_title 等关键字段，只重查当前电影。
+
+        典型场景：
+        - 旧缓存建立时 SHOW_SUMMARY_BLOCK=False，因此没有 overview/summary；
+        - 本次运行改成 SHOW_SUMMARY_BLOCK=True；
+        - 这时任务签名仍然命中，但单片事实集不够，需要只重查这一部而不是整批失效。
+        """
+        name = str(movie.get("name", "")).strip()
+        if not name:
+            return True
+        if not str(movie.get("release_date", "")).strip():
+            return True
+
+        is_china = bool(movie.get("is_china_film"))
+        if (not is_china) and (not str(movie.get("original_title", "")).strip()):
+            return True
+
+        if self.show_summary and (not str(movie.get("overview", "")).strip()):
+            return True
+        return False
+
+    def build_note(self, theme: str, title: str, movies: list) -> dict | None:
+        """
+        仅负责组装整篇笔记。
+
+        说明：
+        - 命中缓存后电影顺序可能变化，因此整篇 note_data 不能直接复用旧成品；
+        - 这里始终基于“当前顺序的 movies”重新拼装 content/tags。
+        - 也正因为如此，缓存真正复用的对象是“单部电影完整数据”，不是整篇正文字符串。
+        """
+        if len(title) > 20:
+            print(f"   ⛔ [熔断] 标题超长: {len(title)}/20")
+            return None
+        return self._assemble_note(theme, title, movies)
 
     def _validate_required_fields(self, movie: dict) -> bool:
         """按已确认规则校验必填项；不通过直接返回 False。"""
@@ -151,7 +215,7 @@ class PreviewWriterAgent:
         """
         current = self._normalize_hook(movie.get("hook", ""))
         if current:
-            print(f"      ✅ [Writer-Hook] 复用已有合规噱头: {current}")
+            print("      ✅ [Writer-Hook] 复用已有合规噱头。")
             return current
 
         snippets = movie.get("hook_snippets", []) or []
@@ -197,7 +261,7 @@ class PreviewWriterAgent:
             raw = self.brain.think(prompt, system_prompt="你是电影宣发编辑，只输出一句话。")
             candidate, reasons = self._validate_hook_candidate(raw or "")
             if candidate:
-                print(f"      ✅ [Writer-Hook] 合规噱头: {candidate}")
+                print("      ✅ [Writer-Hook] 已生成合规噱头。")
                 return candidate
 
             reason_text = "；".join(reasons) if reasons else "空内容"
@@ -250,6 +314,10 @@ class PreviewWriterAgent:
             text = self._clean_plain_text(raw)
             current_len = len(text)
             if self.summary_min <= current_len <= self.summary_max:
+                print(
+                    f"      ✅ 《{movie_name}》简介重写成功: {current_len}字 "
+                    f"(第 {attempt}/{self.summary_retries} 次)"
+                )
                 return text
             if current_len < self.summary_min:
                 print(
@@ -274,6 +342,12 @@ class PreviewWriterAgent:
                     f"并严格不超过 {self.summary_max} 字。"
                 )
         return ""
+
+    def _is_summary_length_valid(self, text: str) -> bool:
+        """判断已有 summary 是否已落在 preview 校验区间内。"""
+        if not text:
+            return False
+        return self.summary_min <= len(text) <= self.summary_max
 
     def _assemble_note(self, theme: str, title: str, movies: list) -> dict | None:
         """
@@ -308,7 +382,8 @@ class PreviewWriterAgent:
             summary_lines = []
             for movie in movies:
                 summary_lines.append(f"《{movie['name']}》：{movie.get('summary', '')}")
-            sections.append("\n".join(summary_lines))
+            # 相邻电影简介之间显式空一行，提升正文可读性。
+            sections.append("\n\n".join(summary_lines))
 
         if self.show_cta and self.cta_text:
             sections.append(self.cta_text)

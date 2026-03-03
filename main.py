@@ -20,6 +20,7 @@ from agents.preview_topic import PreviewTopicAgent
 from agents.preview_meta import PreviewMetaFetcher
 from agents.preview_writer import PreviewWriterAgent
 from agents.preview_visual import PreviewVisualAgent
+from services.preview_cache import PreviewCacheManager
 
 def run_single_mode():
     """
@@ -189,23 +190,68 @@ def run_preview_mode():
     if not topic_data:
         return
 
-    # === Step 2: 元数据采集 ===
-    # 采集链路: TMDB -> Serper -> Gemini；任一电影必填字段缺失则整夹熔断。
+    # === Step 2: 逐电影采集 + 临时缓存 ===
+    # 新规则：按电影逐部完成“元数据 -> hook -> summary”，完整即落缓存；
+    # 某一部失败时，只重跑当前失败项，不再让前面已完成电影全部重查。
+    cache_mgr = PreviewCacheManager()
     meta_fetcher = PreviewMetaFetcher()
-    movies_with_meta = meta_fetcher.run(topic_data["movies"])
-    if not movies_with_meta:
-        return
+    writer_agent = PreviewWriterAgent()
+    cached_count = cache_mgr.count_completed_movies(topic_data)
+    if cached_count > 0:
+        print(f"📦 [PreviewCache] 命中当前任务缓存，已完成电影 {cached_count} 部。")
+    else:
+        print("📦 [PreviewCache] 当前任务暂无可复用缓存，将从头开始逐电影处理。")
+
+    completed_movies = []
+    total_movies = len(topic_data["movies"])
+    for idx, movie in enumerate(topic_data["movies"]):
+        movie_name = movie["name"]
+        movie_key = movie.get("movie_key", "")
+        print(f"\n🧩 [Preview] 正在处理第 {idx + 1}/{total_movies} 部: 《{movie_name}》")
+
+        cached_movie = cache_mgr.get_cached_movie(topic_data, movie_key)
+        if cached_movie:
+            print(f"   📥 [PreviewCache] 复用单片缓存: {movie_key}")
+            # 运行时字段以本次扫描结果为准：顺序、图片路径、锁定信息都不能从旧缓存盲信。
+            working_movie = cache_mgr.merge_with_runtime_movie(movie, cached_movie)
+            if writer_agent.needs_meta_refresh(working_movie):
+                print("   🔄 [PreviewCache] 旧缓存不满足当前配置，正在仅重查当前电影...")
+                try:
+                    working_movie = meta_fetcher.collect_one(movie)
+                except Exception as e:
+                    print(f"   ⛔ [熔断] 《{movie_name}》元数据不完整: {e}")
+                    return
+        else:
+            print(f"   🆕 [PreviewCache] 当前电影未命中缓存，开始完整采集: {movie_key or movie_name}")
+            try:
+                # 未命中缓存时，才走完整外部查询链路。
+                working_movie = meta_fetcher.collect_one(movie)
+            except Exception as e:
+                print(f"   ⛔ [熔断] 《{movie_name}》元数据不完整: {e}")
+                return
+
+        finalized_movie = writer_agent.finalize_movie(working_movie)
+        if not finalized_movie:
+            return
+
+        # 统一在单部电影完成时打印最终采用的噱头，避免不同来源分支重复打印。
+        print(f"   ✅ [Preview] 《{movie_name}》最终噱头: {finalized_movie.get('hook', '')}")
+        # 单部电影一旦完整，就立刻写缓存；后续若下一部熔断，这一部也无需重查。
+        cache_mgr.save_completed_movie(topic_data, finalized_movie)
+        print(f"   💾 [PreviewCache] 已写入单片缓存: {movie_key}")
+        completed_movies.append(finalized_movie)
 
     # === Step 3: 文案与标签组装 ===
-    # 在此阶段执行噱头/简介长度约束与正文+tags总长度熔断。
-    writer_agent = PreviewWriterAgent()
-    writer_data = writer_agent.run(
+    # 说明：电影顺序允许变化，因此整篇 note_data 每次都按“当前顺序”重新拼装。
+    note_data = writer_agent.build_note(
         topic_data["theme"],
         topic_data["title"],
-        movies_with_meta,
+        completed_movies,
     )
-    if not writer_data:
+    if not note_data:
         return
+
+    writer_data = {"note_data": note_data, "movies": completed_movies}
 
     # === Step 4: 视觉处理 ===
     # landscape: 渲染+拼接；poster: 原图直发。

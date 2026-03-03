@@ -406,7 +406,8 @@ class CollectionWriterAgent:
             movie['body_summary'] = current_summary
             lines.append(f"《{movie_name}》：{current_summary}")
 
-        return "\n".join(lines)
+        # mode_two 的电影简介块之间空一行，避免多部简介连成一整段。
+        return "\n\n".join(lines)
 
     def _rewrite_single_mode_two_summary(
         self,

@@ -78,12 +78,22 @@ class PreviewMetaFetcher:
             print(f"   🔍 ({i+1}/{len(movies)}) 处理: 《{movie_name}》")
             try:
                 # 单片失败即整夹终止：preview 保持强一致，避免部分片目“半成品发布”。
-                enriched.append(self._collect_for_one_movie(movie))
+                enriched.append(self.collect_one(movie))
             except Exception as e:
                 print(f"   ⛔ [熔断] 《{movie_name}》元数据不完整: {e}")
                 return None
 
         return enriched
+
+    def collect_one(self, movie: dict) -> dict:
+        """
+        对外暴露的单部电影采集入口。
+
+        新的 preview 缓存链路会逐电影调用这里，保证：
+        1. 命中缓存的电影不再重复查询；
+        2. 未命中的电影仍沿用当前完整采集逻辑。
+        """
+        return self._collect_for_one_movie(movie)
 
     def _collect_for_one_movie(self, movie: dict) -> dict:
         """
@@ -95,13 +105,19 @@ class PreviewMetaFetcher:
         5) 标准化 + 规则校验（不合格抛异常）
         """
         name = movie["name"]
+        lock_year = (movie.get("lock_year") or "").strip() or None
         lock_original_title = (movie.get("lock_original_title") or "").strip() or None
 
         result = {
             # 基础标识与文件路径（来自 topic 阶段）
+            # 注意：这里先保留 path/index，是为了当前这次运行还能继续走视觉与排序。
+            # 真正写入缓存前，会由 PreviewCacheManager 去掉这两个“运行时字段”。
             "name": name,
             "path": movie["path"],
             "index": movie["index"],
+            "lock_year": lock_year,
+            "lock_original_title": lock_original_title,
+            "movie_key": movie.get("movie_key", ""),
             # 采集字段（逐步补齐）
             "original_title": "",
             "original_language": "",
@@ -119,13 +135,16 @@ class PreviewMetaFetcher:
         }
 
         # 1) TMDB 主通道：优先取结构化字段，稳定且成本低。
-        tmdb_data = self._fetch_from_tmdb(name, lock_original_title)
+        tmdb_data = self._fetch_from_tmdb(name, lock_original_title, lock_year)
         self._merge_missing(result, tmdb_data)
 
         # 2) Serper 搜索补齐：先用便宜通道补缺。
         # 注意：_collect_serper_snippets 内部已实现“收齐即停”，不会盲目跑满预算。
-        snippets = self._collect_serper_snippets(name, lock_original_title, result=result)
+        snippets = self._collect_serper_snippets(
+            name, lock_original_title, lock_year, result=result
+        )
         # 透传给 writer 作为最终兜底生成 hook 的上下文，不在这里裁剪语义字段。
+        # 这批 snippets 虽然不会直接发布到笔记里，但会影响 hook 生成质量，因此必须进缓存。
         result["hook_snippets"] = snippets[:8]
 
         # 3) Gemini Grounding 最终兜底：仅在仍有必填缺失时触发。
@@ -141,7 +160,7 @@ class PreviewMetaFetcher:
                 print(
                     f"      🌐 [Gemini] 第 {attempts}/{self.max_gemini_grounding} 次联网补齐: 缺 {', '.join(hard_missing)}"
                 )
-                gemini_fields = self._fetch_with_gemini(name, lock_original_title, result)
+                gemini_fields = self._fetch_with_gemini(name, lock_original_title, lock_year, result)
                 gemini_fields = self._log_valid_gemini_hook(gemini_fields, source="Gemini")
                 self._merge_missing(result, gemini_fields)
 
@@ -152,7 +171,7 @@ class PreviewMetaFetcher:
                 print(
                     f"      🌐 [Gemini-Hook] 第 {attempt}/{self.gemini_hook_attempts} 次尝试补写噱头..."
                 )
-                gemini_fields = self._fetch_with_gemini(name, lock_original_title, result)
+                gemini_fields = self._fetch_with_gemini(name, lock_original_title, lock_year, result)
                 gemini_fields = self._log_valid_gemini_hook(gemini_fields, source="Gemini-Hook")
                 self._merge_missing(result, gemini_fields)
                 if self._normalize_hook(result.get("hook", "")):
@@ -204,13 +223,18 @@ class PreviewMetaFetcher:
 
         return result
 
-    def _fetch_from_tmdb(self, movie_name: str, lock_original_title: str | None) -> dict:
+    def _fetch_from_tmdb(
+        self,
+        movie_name: str,
+        lock_original_title: str | None,
+        lock_year: str | None,
+    ) -> dict:
         """从 TMDB 拉取主数据（详情 + credits + release_dates）。"""
         if not self.tmdb_key:
             return {}
 
         try:
-            tmdb_id = self._search_tmdb_movie_id(movie_name, lock_original_title)
+            tmdb_id = self._search_tmdb_movie_id(movie_name, lock_original_title, lock_year)
             if not tmdb_id:
                 return {}
 
@@ -267,12 +291,21 @@ class PreviewMetaFetcher:
         except Exception:
             return {}
 
-    def _search_tmdb_movie_id(self, movie_name: str, lock_original_title: str | None) -> int | None:
+    def _search_tmdb_movie_id(
+        self,
+        movie_name: str,
+        lock_original_title: str | None,
+        lock_year: str | None,
+    ) -> int | None:
         """
         搜索 TMDB 电影 ID。
         优先顺序:
         1) lock_original_title（若提供）
         2) movie_name
+
+        说明：
+        - 若外部传入年份锁定，则会先带年份过滤搜索；
+        - 若带年份未命中，再降级不带年份复活一次，避免年份线索写错导致全失效。
         """
         queries = []
         if lock_original_title:
@@ -282,12 +315,21 @@ class PreviewMetaFetcher:
         for query in queries:
             search_url = "https://api.themoviedb.org/3/search/movie"
             params = {"api_key": self.tmdb_key, "query": query, "language": "zh-CN"}
+            if lock_year:
+                params["primary_release_year"] = lock_year
             try:
                 resp = requests.get(search_url, params=params, timeout=10).json()
             except Exception:
                 continue
 
             results = resp.get("results", [])
+            if not results and lock_year:
+                try:
+                    fallback_params = {"api_key": self.tmdb_key, "query": query, "language": "zh-CN"}
+                    resp = requests.get(search_url, params=fallback_params, timeout=10).json()
+                    results = resp.get("results", [])
+                except Exception:
+                    results = []
             if not results:
                 continue
 
@@ -295,8 +337,18 @@ class PreviewMetaFetcher:
                 # 锁定场景下优先精确匹配 original_title，避免重名误命中。
                 lock_lower = lock_original_title.lower()
                 for item in results:
+                    item_year = str(item.get("release_date", "") or "").strip()[:4]
                     if str(item.get("original_title", "")).strip().lower() == lock_lower:
+                        if lock_year and item_year and item_year != lock_year:
+                            continue
                         return item.get("id")
+
+            if lock_year:
+                # 没有原名精确锚点时，优先挑年份一致的结果。
+                for item in results:
+                    item_year = str(item.get("release_date", "") or "").strip()[:4]
+                    if item_year and item_year == lock_year and item.get("id"):
+                        return item["id"]
 
             top = results[0]
             if top.get("id"):
@@ -330,6 +382,7 @@ class PreviewMetaFetcher:
         self,
         movie_name: str,
         lock_original_title: str | None,
+        lock_year: str | None,
         result: dict | None = None,
     ) -> list:
         """
@@ -343,7 +396,7 @@ class PreviewMetaFetcher:
         if not self.serper_key or self.max_serper_queries <= 0:
             return []
 
-        queries = self._build_serper_queries(movie_name, lock_original_title)
+        queries = self._build_serper_queries(movie_name, lock_original_title, lock_year)
         snippets = []
         used = 0
         genres_source = "TMDB" if result and self._has_collected_genres(result) else ""
@@ -424,17 +477,23 @@ class PreviewMetaFetcher:
         """判断电影类型是否已收集到有效值。"""
         return bool(str(movie.get("genres") or "").strip())
 
-    def _build_serper_queries(self, movie_name: str, lock_original_title: str | None) -> list:
+    def _build_serper_queries(
+        self,
+        movie_name: str,
+        lock_original_title: str | None,
+        lock_year: str | None,
+    ) -> list:
         """构建 Serper 查询模板（尽量覆盖上映、演职员、简介等字段）。"""
         base_name = lock_original_title or movie_name
+        year_suffix = f" {lock_year}" if lock_year else ""
         domain_filter = " OR ".join([f"site:{d}" for d in self.domain_whitelist]) if self.domain_whitelist else ""
         prefix = f"({domain_filter}) " if domain_filter else ""
         return [
-            f"{prefix}{base_name} imdb",
-            f"{prefix}{base_name} release date theatrical",
-            f"{prefix}{movie_name} 豆瓣 上映",
-            f"{prefix}{base_name} cast director",
-            f"{prefix}{base_name} plot overview",
+            f"{prefix}{base_name}{year_suffix} imdb",
+            f"{prefix}{base_name}{year_suffix} release date theatrical",
+            f"{prefix}{movie_name}{year_suffix} 豆瓣 上映",
+            f"{prefix}{base_name}{year_suffix} cast director",
+            f"{prefix}{base_name}{year_suffix} plot overview",
         ]
 
     def _call_serper(self, query: str) -> dict:
@@ -507,7 +566,13 @@ class PreviewMetaFetcher:
         except Exception:
             return {}
 
-    def _fetch_with_gemini(self, movie_name: str, lock_original_title: str | None, current: dict) -> dict:
+    def _fetch_with_gemini(
+        self,
+        movie_name: str,
+        lock_original_title: str | None,
+        lock_year: str | None,
+        current: dict,
+    ) -> dict:
         """
         Gemini Google Grounding 兜底补齐。
         只负责补字段，不直接决定熔断；是否合格由最终校验统一判断。
@@ -516,6 +581,7 @@ class PreviewMetaFetcher:
 你是电影信息抽取助手。请联网搜索并补齐电影信息。
 电影中文名: {movie_name}
 电影原名线索: {lock_original_title or ""}
+电影年份线索: {lock_year or ""}
 
 当前已知信息(JSON):
 {json.dumps(current, ensure_ascii=False)}
@@ -622,7 +688,7 @@ class PreviewMetaFetcher:
             raw = self.brain.think(prompt, system_prompt="你是电影宣发编辑，只输出一句话。")
             cleaned, reasons = self._validate_hook_candidate(raw or "")
             if cleaned:
-                print(f"      ✅ [Meta-Hook] 合规噱头: {cleaned}")
+                print("      ✅ [Meta-Hook] 已生成合规噱头。")
                 return cleaned
 
             reason_text = "；".join(reasons) if reasons else "空内容"
@@ -713,7 +779,7 @@ class PreviewMetaFetcher:
         cleaned, _ = self._validate_hook_candidate(fields.get("hook", ""))
         if cleaned:
             fields["hook"] = cleaned
-            print(f"      ✅ [{source}] 合规噱头: {cleaned}")
+            print(f"      ✅ [{source}] 已获得合规噱头。")
         else:
             # 保证无效 hook 不参与后续合并
             fields["hook"] = ""

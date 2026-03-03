@@ -12,7 +12,7 @@ class PreviewTopicAgent:
     2. 解析任务文件夹: 主题｜标题。
     3. 严格校验图片命名:
        - 电影名｜序号
-       - 电影名｜原名｜序号
+       - 电影名｜年份或原名｜序号
        - 封面图：主标题\\n第二行\\n第三行｜0（兼容半角 | 和全角 ｜）
     """
 
@@ -40,7 +40,14 @@ class PreviewTopicAgent:
             "title": "...",
             "folder_path": "...",
             "movies": [
-                {"name": "...", "path": "...", "index": 1, "lock_original_title": "...|None"}
+                {
+                    "name": "...",
+                    "path": "...",
+                    "index": 1,
+                    "lock_year": "...|None",
+                    "lock_original_title": "...|None",
+                    "movie_key": "..."
+                }
             ],
             "cover": {  # 可选，无封面时为 None
                 "path": "...",
@@ -119,7 +126,7 @@ class PreviewTopicAgent:
 
         允许命名:
         1) 电影名｜序号
-        2) 电影名｜原名｜序号
+        2) 电影名｜年份或原名｜序号
         3) 封面图：主标题\\n第二行\\n第三行｜0
 
         返回 None 代表命名违规，触发“整夹跳过”。
@@ -147,17 +154,22 @@ class PreviewTopicAgent:
             parts = [p.strip() for p in base_name.replace("|", "｜").split("｜")]
 
             movie_name = ""
+            lock_year = None
             lock_original_title = None
             index_str = ""
 
             if len(parts) == 2:
                 movie_name, index_str = parts
             elif len(parts) == 3:
-                # 三段式中第二段为“原名锁定”线索，供下游采集精确匹配
-                movie_name, lock_original_title, index_str = parts
-                if not lock_original_title:
+                # 三段式第二段既可能是年份，也可能是原名；与 collection 规则保持一致。
+                movie_name, lock_hint, index_str = parts
+                if not lock_hint:
                     print(f"      ⛔ 三段式命名第二段不能为空: {file_name}")
                     return None
+                if self._is_reasonable_year(lock_hint):
+                    lock_year = lock_hint
+                else:
+                    lock_original_title = lock_hint
             else:
                 print(f"      ⛔ 图片命名不合规: {file_name}")
                 return None
@@ -211,10 +223,46 @@ class PreviewTopicAgent:
                     "name": movie_name,
                     "path": full_path,
                     "index": index,
+                    "lock_year": lock_year,
                     "lock_original_title": lock_original_title,
+                    # movie_key 是缓存命中的唯一锚点，不受顺序和 path 变化影响。
+                    # 只要“电影身份”没变（片名 + 年份锁定 / 原名锁定），就应命中同一条电影缓存。
+                    "movie_key": self._build_movie_key(movie_name, lock_year, lock_original_title),
                 }
             )
 
         # 发布顺序完全由编号控制，不依赖文件系统自然顺序。
         movies.sort(key=lambda x: x["index"])
         return {"movies": movies, "cover": cover_data}
+
+    def _is_reasonable_year(self, value: str) -> bool:
+        """判断三段式第二段是否应视作电影年份。"""
+        if not value or len(value) != 4 or (not value.isdigit()):
+            return False
+        year = int(value)
+        return 1888 <= year <= 2030
+
+    def _build_movie_key(
+        self,
+        movie_name: str,
+        lock_year: str | None,
+        lock_original_title: str | None,
+    ) -> str:
+        """
+        构建缓存用 movie_key。
+
+        规则：
+        1. 年份锁定优先：电影名｜year｜年份
+        2. 否则原名锁定：电影名｜original｜原名
+        3. 否则仅使用电影名
+
+        设计意图：
+        - 解决同名电影在缓存中的区分问题；
+        - 保证“顺序变化但电影身份未变”时仍能稳定命中缓存；
+        - 与任务级 movie_keys 一起组成缓存匹配的基础锚点。
+        """
+        if lock_year:
+            return f"{movie_name}｜year｜{lock_year}"
+        if lock_original_title:
+            return f"{movie_name}｜original｜{lock_original_title}"
+        return movie_name

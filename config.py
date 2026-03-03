@@ -16,7 +16,7 @@ class Strategy:
     class System:
         """[v4.0 新增] 系统运行模式与全局配置"""
         # 运行模式选择: "single" (单片模式) / "collection" (合集盘点模式) / "preview" (新片速递模式)
-        RUN_MODE: str = "collection"
+        RUN_MODE: str = "preview"
 
         # [新增] 发布前决策菜单总开关
         # True: 启用发布前菜单（single=4选项，collection/preview=3选项）
@@ -240,6 +240,10 @@ class Strategy:
         # 若调用失败或返回不可解析 JSON，会按该次数自动重试；重试后仍失败则回退为“不显示英文行”。
         COVER_EN_NAME_RETRY_TIMES: int = 3
 
+        # ================= preview 临时缓存 =================
+        # 仅保留最近 N 次 preview 任务缓存；每次任务内部按“单部电影完整完成”写入。
+        PREVIEW_CACHE_MAX_TASKS: int = 5
+
 
 # ================= 路径配置 (定海神针) =================
 # 获取当前文件(config.py)所在的目录，即项目根目录
@@ -267,6 +271,10 @@ PREVIEW_DONE_DIR = os.path.join(PREVIEW_DIR, "_done")
 # [修改] 独立 score 文件夹，存放本地分数
 SCORE_DIR = os.path.join(BASE_DIR, "资料", "score")
 LOCAL_SCORES_FILE = os.path.join(SCORE_DIR, "local_scores.json")
+
+# [新增] preview 临时缓存目录
+CACHE_DIR = os.path.join(BASE_DIR, "资料", "cache")
+PREVIEW_CACHE_FILE = os.path.join(CACHE_DIR, "preview_cache.json")
 
 # [v4.0 新增] 字体精确路径配置 (Adobe 官方命名规范)
 FONT_TITLE_PATH = os.path.join(BASE_DIR, "资料", "fonts", "思源黑体", "SourceHanSansSC-Bold.otf")
@@ -303,6 +311,7 @@ for _dir in [
     os.path.join(PREVIEW_DONE_DIR, "landscape"),
     os.path.join(PREVIEW_DONE_DIR, "poster"),
     SCORE_DIR,
+    CACHE_DIR,
 ]:
     _safe_mkdir(_dir)
 
