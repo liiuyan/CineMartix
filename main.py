@@ -137,7 +137,11 @@ def run_collection_mode():
         
     # === Step 4: 渲染 16:27 长图海报 ===
     visual_agent = CollectionVisualAgent()
-    final_images = visual_agent.run(writer_data['movies'], topic_data['folder_path'])
+    final_images = visual_agent.run(
+        writer_data['movies'],
+        topic_data['folder_path'],
+        cover_data=topic_data.get('cover'),
+    )
     if not final_images:
         return
         

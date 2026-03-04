@@ -28,7 +28,14 @@ class CollectionTopicAgent:
     def run(self) -> dict | None:
         """
         执行合集扫描逻辑。
-        返回字典: {"theme": 主题, "title": 标题, "folder_path": 路径, "movies": [排序后的电影列表]}
+        返回字典:
+        {
+            "theme": 主题,
+            "title": 标题,
+            "folder_path": 路径,
+            "movies": [排序后的电影列表],
+            "cover": {可选封面数据} | None
+        }
         """
         print("\n📁 [1/5 CollectionTopicAgent] 正在扫描合集目录...")
         
@@ -64,24 +71,28 @@ class CollectionTopicAgent:
                 continue
                 
             # --- 3. 严格模式扫描内部图片 ---
-            movies = self._scan_images_strict(folder_path, item)
-            
-            if movies is None:
+            scan_result = self._scan_images_strict(folder_path, item)
+            if scan_result is None:
                 # 触发了严格模式熔断，放弃当前合集，去看看别的文件夹
                 continue
-                
+
+            movies = scan_result["movies"]
+            cover = scan_result["cover"]
             if len(movies) == 0:
                 print(f"      ⚠️ 文件夹内没有有效图片，跳过。")
                 continue
-                
-            print(f"      ✅ 成功提取 {len(movies)} 部电影原图，已按编号严谨排序。")
+
+            cover_log = " | 含封面图" if cover else " | 无封面图"
+            print(f"      ✅ 成功提取 {len(movies)} 部电影原图，已按编号严谨排序。{cover_log}")
             
             # 返回提取到的所有干净数据
             return {
                 "theme": theme,
                 "title": title,
                 "folder_path": folder_path,
-                "movies": movies  # 格式: [{'name': '星际穿越', 'path': '...', 'index': 1}, ...]
+                "movies": movies,  # 格式: [{'name': '星际穿越', 'path': '...', 'index': 1}, ...]
+                # 与 preview 对齐：封面缺失时返回 None，存在时返回标准化结构。
+                "cover": cover,
             }
             
         print("   😴 未发现待处理的有效合集任务。")
@@ -100,13 +111,14 @@ class CollectionTopicAgent:
             return parts[0].strip(), parts[1].strip()
         return None, None
 
-    def _scan_images_strict(self, folder_path: str, folder_name: str) -> list | None:
+    def _scan_images_strict(self, folder_path: str, folder_name: str) -> dict | None:
         """
-        [严格模式] 扫描图片并排序
+        [严格模式] 扫描图片并排序，同时识别可选封面图。
         只要有一张图片命名不合规，立刻返回 None 熔断。
         """
         valid_exts = {".jpg", ".jpeg", ".png", ".webp"}
         movies = []
+        cover_data = None
         
         for file_name in os.listdir(folder_path):
             # 跳过隐藏文件 (如 .DS_Store) 或内部子文件夹 (如 output)
@@ -160,6 +172,43 @@ class CollectionTopicAgent:
                 print(f"         后缀必须为纯阿拉伯数字。已跳过该合集！")
                 return None
                 
+            # 序号 0 专用于合集封面，协议与 preview 完全一致。
+            if index == 0:
+                if len(parts) != 2:
+                    print(f"      ⛔ [严格模式熔断] 封面图命名不合规(必须两段式): {file_name}")
+                    print(f"         封面必须为 '主标题第一行\\n第二行\\n第三行|0.jpg'。已跳过该合集！")
+                    return None
+                if cover_data is not None:
+                    print(f"      ⛔ [严格模式熔断] 同一合集检测到多张封面图(|0/｜0): {file_name}")
+                    print(f"         同一合集只允许 1 张封面。已跳过该合集！")
+                    return None
+                if "\\n" not in movie_name:
+                    print(f"      ⛔ [严格模式熔断] 封面主标题必须使用字面量 \\\\n 分为三行: {file_name}")
+                    print(f"         已跳过该合集！")
+                    return None
+
+                title_lines = [x.strip() for x in movie_name.split("\\n")]
+                if len(title_lines) != 3:
+                    print(f"      ⛔ [严格模式熔断] 封面主标题必须恰好包含两处 \\\\n: {file_name}")
+                    print(f"         已跳过该合集！")
+                    return None
+                if not title_lines[0]:
+                    print(f"      ⛔ [严格模式熔断] 封面主标题第一行不能为空: {file_name}")
+                    print(f"         已跳过该合集！")
+                    return None
+
+                cover_data = {
+                    "path": os.path.join(folder_path, file_name),
+                    "title_lines": title_lines,
+                    "raw_title": movie_name,
+                }
+                continue
+
+            if index < 0:
+                print(f"      ⛔ [严格模式熔断] 发现负数编号: {file_name}")
+                print(f"         图片编号不能为负数。已跳过该合集！")
+                return None
+
             full_path = os.path.join(folder_path, file_name)
             movies.append({
                 "name": movie_name,
@@ -172,7 +221,7 @@ class CollectionTopicAgent:
             
         # 根据数字编号进行严谨的升序排列 (1, 2, 3...)
         movies.sort(key=lambda x: x["index"])
-        return movies
+        return {"movies": movies, "cover": cover_data}
 
     def _split_by_pipe(self, raw_name: str) -> list:
         """统一兼容全角/半角分隔符，返回去首尾空格后的分段列表。"""

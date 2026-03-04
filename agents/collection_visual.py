@@ -2,6 +2,7 @@
 import os
 from PIL import Image, ImageDraw, ImageFont
 import config
+from services.cover_renderer import CoverRenderer
 
 class CollectionVisualAgent:
     """
@@ -56,14 +57,21 @@ class CollectionVisualAgent:
             # 保持原有像素规格，避免旧工作流受影响
             self.render_width = 1920
             self.render_height = 1080
+        # collection 封面水印与 preview 独立控制，只影响电影名水印区域。
+        self.cover_show_watermark = bool(
+            getattr(config.Strategy.Visual, "COLLECTION_COVER_SHOW_WATERMARK", True)
+        )
+        # 合集封面直接复用 preview 的封面渲染器，但关闭英文水印。
+        self.cover_renderer = CoverRenderer()
 
-    def run(self, movies: list, folder_path: str) -> list:
+    def run(self, movies: list, folder_path: str, cover_data: dict | None = None) -> list:
         """
         执行视觉渲染与拼接逻辑。
         
         Args:
             movies (list): 完善了所有文案数据的电影列表。
             folder_path (str): 当前处理的合集母文件夹路径 (用于创建 output 归档)。
+            cover_data (dict | None): 可选封面图信息，结构与 preview 保持一致。
             
         Returns:
             list: 生成好的所有长图/横图的绝对路径列表。
@@ -74,6 +82,21 @@ class CollectionVisualAgent:
         
         output_dir = os.path.join(folder_path, "output")
         os.makedirs(output_dir, exist_ok=True)
+        cover_path = None
+        if cover_data:
+            # 合集封面只显示中文电影名水印，不触发英文名判定。
+            cover_path = self.cover_renderer.render(
+                cover_data,
+                movies,
+                output_dir,
+                cover_mode="collection",
+                show_english_names=False,
+                show_watermark=self.cover_show_watermark,
+                output_filename="collection_cover.jpg",
+            )
+            if not cover_path:
+                print("   ⛔ [熔断] 合集封面图渲染失败。")
+                return []
         
         rendered_canvases = []
         
@@ -138,6 +161,11 @@ class CollectionVisualAgent:
                     canvas.save(save_path, quality=95)
                     final_images_paths.append(save_path)
                     print(f"      ✅ 成功生成并追加独立排版图: collection_detail_{i+1}.jpg")
+
+        if cover_path:
+            # 与 preview 对齐：封面图永远是发布序列第 1 张。
+            final_images_paths.insert(0, cover_path)
+            print("   ✅ 已将合集封面插入发布序列首位。")
                     
         return final_images_paths
 

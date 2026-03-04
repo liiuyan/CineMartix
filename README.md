@@ -17,7 +17,7 @@ CineMatrix 采用 Agent 分工架构，当前支持三条业务赛道：
 - 选题：`pending.txt` 点播优先 + AI 自动选题
 - 元数据：TMDB / OMDB / Serper / Gemini（preview 兜底）
 - 文案：结构化生成 + 长度熔断 + 标签组装
-- 视觉：人工素材优先 / 渲染拼接 / preview 封面渲染 / CLIP 去重
+- 视觉：人工素材优先 / 渲染拼接 / collection 与 preview 封面渲染 / CLIP 去重
 - 发布：本地发布服务调用 + 发布前决策菜单（放弃/立即/定时）+ 成功后原子收尾
 
 ---
@@ -47,7 +47,7 @@ agents/
 
 services/
   ├─ clip_engine.py          # CLIP 单例引擎
-  ├─ cover_renderer.py       # 通用封面渲染器（preview 已接入）
+  ├─ cover_renderer.py       # 通用封面渲染器（preview / collection 共用）
   └─ preview_cache.py        # preview 逐电影临时缓存管理器
 
 utils.py
@@ -205,6 +205,7 @@ python3 main.py
 - 图片命名支持：
   - `电影名｜序号.jpg`
   - `电影名｜年份或原名｜序号.jpg`
+  - `主标题第一行\n第二行\n第三行｜0.jpg`（可选封面图，兼容 `|0` 与 `｜0`）
 
 第二段自动识别：
 
@@ -213,10 +214,19 @@ python3 main.py
 
 严格模式：命名违规会整夹跳过。
 
+封面命名细则（严格模式）：
+
+- `\n` 必须是文件名里的字面量两个字符（反斜杠 + n），不是实际换行符
+- 封面主标题必须恰好包含两处 `\n`，因此固定拆成三行渲染
+- 第二行/第三行允许为空，第一行不能为空
+- 没有 `|0/｜0` 时，按普通 collection 任务处理（跳过封面逻辑）
+- 同一任务目录出现多张 `|0/｜0` 封面图会直接整夹跳过
+
 示例：
 
 ```text
 资料/collections/诺兰宇宙｜烧脑天花板片单/
+├── 影史级构图美学\n三部曲一次看够\n｜0.jpg
 ├── 星际穿越｜1.jpg
 ├── 盗梦空间｜2010｜2.jpg
 └── 看不见的客人｜Contratiempo｜3.jpg
@@ -244,6 +254,13 @@ python3 main.py
 - 默认每 3 张拼接 16:27；当 `Strategy.Visual.COLLECTION_USE_9_4_RENDER=True` 时改为 3:4
 - 余数单图独立输出
 - 当 `DETAIL_IMAGE_TYPE="rendered"` 时，追加的渲染单图比例会跟随上面的开关（16:9 或 9:4）；`original` 原图追加不受影响
+- 若存在封面图（`|0/｜0`），会渲染为 3:4（`1200x1600`）并输出 `output/collection_cover.jpg`
+- 合集封面只显示中文电影名水印，不显示英文名
+- 最终发布序列中，合集封面固定插入第 1 张；后面的长图/单图追加顺序保持原逻辑
+- `Strategy.Visual.COLLECTION_COVER_SHOW_WATERMARK=False` 时，只关闭电影名水印区域，封面三行主标题仍然保留
+- collection 封面底图裁剪焦点维护在 `services/cover_renderer.py` 的 `CoverRenderer.cover_config["crop"]["collection"]`
+  - 默认 `focus_x=0.5`、`focus_y=0.5`，等价于居中裁剪
+  - `focus_y` 更小表示更偏上裁，更大表示更偏下裁
 - 发布成功归档到：`资料/collections/_done/`
 
 ---
@@ -407,7 +424,7 @@ preview 现在不是“先把所有电影整批查完再统一写文案”，而
 
 #### `landscape`
 
-- 默认会居中裁剪到 16:9；当 `Strategy.Preview.LANDSCAPE_USE_9_4_RENDER=True` 时改为 9:4
+- 默认按 `CoverRenderer.cover_config["crop"]["preview"]` 的 `focus_x=0.5`、`focus_y=0.5` 做居中裁剪；当 `Strategy.Preview.LANDSCAPE_USE_9_4_RENDER=True` 时改为 9:4
 - 左下角自下而上渲染：`噱头 -> 原名与日期 -> 中文名`（从上到下即：中文名、原名与日期、噱头）
 - 中文名 / 原名与日期 / 噱头均支持单行自适应缩放；若缩到最小字号仍超宽会触发渲染报错（熔断）
 - 原名与日期合并规则：
@@ -419,6 +436,10 @@ preview 现在不是“先把所有电影整批查完再统一写文案”，而
 - 若存在封面图（`|0/｜0`），会渲染为 3:4（`1200x1600`）并输出 `output/preview_cover.jpg`
 - 封面主标题固定三行；纵向推进采用“当前行字号 + `line_spacing`”的层级排版逻辑（不是按真实文字高度），用于保留第一行更强的主视觉压场感
 - 标题行距参数当前在 `services/cover_renderer.py` 的 `CoverRenderer.cover_config["title"]["line_spacing"]` 中维护，默认 `20`
+- `Strategy.Preview.COVER_SHOW_WATERMARK=False` 时，只关闭电影名水印区域，封面三行主标题仍然保留
+- preview 封面底图裁剪焦点维护在 `services/cover_renderer.py` 的 `CoverRenderer.cover_config["crop"]["preview"]`
+  - 默认 `focus_x=0.5`、`focus_y=0.5`，等价于居中裁剪
+  - `focus_y` 更小表示更偏上裁，更大表示更偏下裁
 - 最终发布序列中，封面图固定插入第 1 张（不受拼接/追加策略影响）
 
 #### `poster`
@@ -436,6 +457,7 @@ preview 现在不是“先把所有电影整批查完再统一写文案”，而
 - 非中国电影若只有非英文原名，不显示第 2 行
 - 中国电影不显示英文名
 - DeepSeek 判定失败会按重试配置重试，超限后回退为“不显示英文名”
+- 当封面水印开关关闭时，本节整块逻辑会被跳过，但封面主标题仍照常渲染
 - 水印块内部参数当前维护在 `services/cover_renderer.py` 的 `CoverRenderer.cover_config["watermark"]`：
   - 默认字号 `45`，统一缩字号最小下限 `30`
   - 中文/英文块内部默认行间距 `8`
@@ -525,7 +547,8 @@ class Strategy:
         CLIP_THRESHOLD = 0.75
         APPEND_DETAIL_IMAGES = True
         DETAIL_IMAGE_TYPE = "original"   # original / rendered
-        COLLECTION_USE_9_4_RENDER = False  # False: 16:9→16:27, True: 9:4→3:4
+        COLLECTION_USE_9_4_RENDER = True   # False: 16:9→16:27, True: 9:4→3:4
+        COLLECTION_COVER_SHOW_WATERMARK = True
 
     class Writer:
         ENABLE_TITLE_EMOJI = True
@@ -581,11 +604,12 @@ class Strategy:
         # 校验通过区间（仅超出该范围才触发重写）
         SUMMARY_MIN_LEN = 55
         SUMMARY_MAX_LEN = 80
-        SUMMARY_REWRITE_RETRIES = 6
+        SUMMARY_REWRITE_RETRIES = 10
 
         APPEND_RENDERED_DETAILS = False
         LANDSCAPE_USE_9_4_RENDER = False  # False: 16:9→16:27, True: 9:4→3:4
         APPEND_ORIGINAL_IMAGES = True
+        COVER_SHOW_WATERMARK = True
         COVER_EN_NAME_RETRY_TIMES = 3
         PREVIEW_CACHE_MAX_TASKS = 5
 ```
@@ -595,10 +619,28 @@ class Strategy:
 - `config.py` 已按职责分为 `System / Writer / Visual / Preview` 四组，便于按赛道调参
 - 配置字段名与默认值保持兼容（无需改动现有业务代码调用）
 - 本轮新增两个比例开关：`COLLECTION_USE_9_4_RENDER`、`LANDSCAPE_USE_9_4_RENDER`
-- preview 封面标题/水印的精细排版参数当前未上提到 `config.py`，而是维护在 `services/cover_renderer.py` 的 `CoverRenderer.cover_config` 中，便于开发时直接微调
+- preview / collection 封面标题、水印与裁剪焦点参数当前未上提到 `config.py`，而是维护在 `services/cover_renderer.py` 的 `CoverRenderer.cover_config` 中，便于开发时直接微调
+- 封面裁剪焦点当前分为两组独立配置：
+  - `CoverRenderer.cover_config["crop"]["preview"]`
+  - `CoverRenderer.cover_config["crop"]["collection"]`
+- preview 与 collection 的封面水印开关已拆分：
+  - `Strategy.Preview.COVER_SHOW_WATERMARK`
+  - `Strategy.Visual.COLLECTION_COVER_SHOW_WATERMARK`
 - preview 临时缓存文件路径为 `资料/cache/preview_cache.json`
 - 未使用配置项 `LOCAL_FONT_PATH` 已移除，避免误导
 - 注释已恢复为“可操作型说明”，短说明优先同行注释，便于快速阅读
+
+封面调试脚本：
+
+- `test_cover_layout.py` 现在支持直接切换测试赛道与封面参数，便于调封面裁剪
+- 可在脚本顶部直接修改：
+  - `TEST_COVER_MODE = "preview" / "collection"`
+  - `TEST_SHOW_WATERMARK = True / False`
+  - `TEST_SHOW_ENGLISH_NAMES = None / True / False`
+  - `TEST_FOCUS_X = None / 0.0-1.0`
+  - `TEST_FOCUS_Y = None / 0.0-1.0`
+- 当 `TEST_FOCUS_X/Y = None` 时，会沿用 `CoverRenderer.cover_config` 的正式配置
+- 当填入数值时，只对本次测试生效，适合先试 `focus_y` 再回写正式配置
 
 ### 5) Prompt 管理建议（建议方案，未全量落地）
 

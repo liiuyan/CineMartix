@@ -16,7 +16,7 @@ class Strategy:
     class System:
         """[v4.0 新增] 系统运行模式与全局配置"""
         # 运行模式选择: "single" (单片模式) / "collection" (合集盘点模式) / "preview" (新片速递模式)
-        RUN_MODE: str = "preview"
+        RUN_MODE: str = "collection"
 
         # [新增] 发布前决策菜单总开关
         # True: 启用发布前菜单（single=4选项，collection/preview=3选项）
@@ -130,6 +130,11 @@ class Strategy:
         # True: 单图改为 9:4，3图拼接后为 3:4（更贴近小红书封面显示比例）
         COLLECTION_USE_9_4_RENDER: bool = True
 
+        # [新增] collection 封面水印开关
+        # True: 在合集封面上绘制电影名水印
+        # False: 仅保留封面三行主标题，不绘制电影名水印
+        COLLECTION_COVER_SHOW_WATERMARK: bool = False
+
     class Preview:
         """[v5.0 新增] 新片速递模式配置 (Preview Mode)"""
 
@@ -239,6 +244,11 @@ class Strategy:
         # 说明：preview 封面渲染时，会把“电影原名”批量发给 DeepSeek 判定是否应显示英文行。
         # 若调用失败或返回不可解析 JSON，会按该次数自动重试；重试后仍失败则回退为“不显示英文行”。
         COVER_EN_NAME_RETRY_TIMES: int = 3
+
+        # [新增] preview 封面水印开关
+        # True: 在 preview 封面上绘制电影名水印
+        # False: 仅保留封面三行主标题，不绘制电影名水印
+        COVER_SHOW_WATERMARK: bool = True
 
         # ================= preview 临时缓存 =================
         # 仅保留最近 N 次 preview 任务缓存；每次任务内部按“单部电影完整完成”写入。

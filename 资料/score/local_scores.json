@@ -295,5 +295,95 @@
     "rotten_tomatoes": "N/A",
     "metacritic": "45",
     "douban": "8.7"
+  },
+  "十一罗汉｜2001": {
+    "imdb": "7.7",
+    "rotten_tomatoes": "83%",
+    "metacritic": "74",
+    "douban": "7.9"
+  },
+  "十二罗汉": {
+    "imdb": "6.5",
+    "rotten_tomatoes": "55%",
+    "metacritic": "58",
+    "douban": "7.3"
+  },
+  "十三罗汉": {
+    "imdb": "6.9",
+    "rotten_tomatoes": "70%",
+    "metacritic": "62",
+    "douban": "7.5"
+  },
+  "怪物｜2023": {
+    "imdb": "7.8",
+    "rotten_tomatoes": "97%",
+    "metacritic": "79",
+    "douban": "8.6"
+  },
+  "海街日记": {
+    "imdb": "7.6",
+    "rotten_tomatoes": "93%",
+    "metacritic": "75",
+    "douban": "8.8"
+  },
+  "小偷家族": {
+    "imdb": "7.9",
+    "rotten_tomatoes": "99%",
+    "metacritic": "93",
+    "douban": "8.7"
+  },
+  "幻之光": {
+    "imdb": "7.5",
+    "rotten_tomatoes": "100%",
+    "metacritic": "92",
+    "douban": "8.1"
+  },
+  "如父如子": {
+    "imdb": "7.8",
+    "rotten_tomatoes": "86%",
+    "metacritic": "73",
+    "douban": "8.7"
+  },
+  "步履不停": {
+    "imdb": "7.9",
+    "rotten_tomatoes": "100%",
+    "metacritic": "89",
+    "douban": "8.8"
+  },
+  "无人知晓｜2004": {
+    "imdb": "8.0",
+    "rotten_tomatoes": "92%",
+    "metacritic": "88",
+    "douban": "9.1"
+  },
+  "比海更深": {
+    "imdb": "7.4",
+    "rotten_tomatoes": "96%",
+    "metacritic": "84",
+    "douban": "8.7"
+  },
+  "下一站，天国": {
+    "imdb": "7.6",
+    "rotten_tomatoes": "88%",
+    "metacritic": "91",
+    "douban": "8.1"
+  },
+  "蓝白红三部曲之蓝": {
+    "imdb": "7.8",
+    "rotten_tomatoes": "98%",
+    "metacritic": "87",
+    "douban": "8.5"
+  },
+  "蓝白红三部曲之白": {
+    "imdb": "7.6",
+    "rotten_tomatoes": "91%",
+    "metacritic": "91",
+    "douban": "8.3"
+  },
+  "蓝白红三部曲之红": {
+    "imdb": "8.1",
+    "rotten_tomatoes": "100%",
+    "metacritic": "100",
+    "douban": "8.8"
   }
 }

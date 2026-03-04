@@ -48,6 +48,10 @@ class PreviewVisualAgent:
             # 保持旧规格，避免已有任务视觉结果变化
             self.render_width = 1920
             self.render_height = 1080
+        # preview 封面可单独控制是否绘制电影名水印，不影响封面主标题。
+        self.cover_show_watermark = bool(
+            getattr(config.Strategy.Preview, "COVER_SHOW_WATERMARK", True)
+        )
 
         # 统一维护“海报文字层”样式，避免在渲染流程里散落魔法数字。
         # 坐标体系:
@@ -123,7 +127,13 @@ class PreviewVisualAgent:
         if cover_data:
             os.makedirs(output_dir, exist_ok=True)
             # 封面渲染失败视为硬错误：用户显式提供了封面素材，必须保证可发布。
-            cover_path = self.cover_renderer.render(cover_data, movies, output_dir)
+            cover_path = self.cover_renderer.render(
+                cover_data,
+                movies,
+                output_dir,
+                cover_mode="preview",
+                show_watermark=self.cover_show_watermark,
+            )
             if not cover_path:
                 print("   ⛔ [熔断] 封面图渲染失败。")
                 return []

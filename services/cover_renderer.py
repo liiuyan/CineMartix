@@ -22,6 +22,15 @@ class CoverRenderer:
         # 封面图渲染配置（坐标原点在左上角；单位均为 px；颜色使用 RGBA）。
         self.cover_config = {
             "canvas_size": (1200, 1600),  # 输出画布尺寸(3:4)；改这里需同步调整标题/水印坐标
+            "crop": {
+                # 封面底图裁剪焦点（0.0-1.0）：
+                # - 0.5/0.5 等于当前默认的“居中裁剪”
+                # - focus_y 更小 => 更偏上裁；更大 => 更偏下裁
+                # - focus_x 更小 => 更偏左裁；更大 => 更偏右裁
+                # 说明：preview / collection 各自独立，后续只需在这里调数值即可。
+                "preview": {"focus_x": 0.5, "focus_y": 0.5},
+                "collection": {"focus_x": 0.5, "focus_y": 0.45},
+            },
             "watermark": {
                 "font_path": config.FONT_SCORE_PATH,  # 水印字体（中文/英文共用）
                 "font_size": 45,  # 水印字号
@@ -39,7 +48,7 @@ class CoverRenderer:
             },
             "title": {
                 "start_x": 480,  # 三行主标题基准 X（第一行从这里开始）
-                "start_y": 300,  # 三行主标题基准 Y（第一行从这里开始）
+                "start_y": 1400,  # 三行主标题基准 Y（第一行从这里开始）
                 "line_spacing": 20,  # 行间距（每行绘制后的额外间隔）
                 "styles": [
                     # offset_x/offset_y 都是“相对偏移”：
@@ -47,7 +56,7 @@ class CoverRenderer:
                     # - offset_y: 在当前行默认 y 基础上上下微调（+ 下移，- 上移）
 
                     # 第 1 行样式（主视觉）
-                    {"font_path": config.FONT_TITLE_PATH, "size": 180, "offset_x": 0, "offset_y": 0}, 
+                    {"font_path": config.FONT_TITLE_PATH, "size": 120, "offset_x": 0, "offset_y": 40}, 
                     # 第 2 行样式
                     {"font_path": config.FONT_TITLE_PATH, "size": 120, "offset_x": 0, "offset_y": 0},  
                     # 第 3 行样式（可空，空行仅占位）
@@ -59,7 +68,16 @@ class CoverRenderer:
             },
         }
 
-    def render(self, cover_data: dict, movies: list, output_dir: str) -> str | None:
+    def render(
+        self,
+        cover_data: dict,
+        movies: list,
+        output_dir: str,
+        cover_mode: str = "preview",
+        show_english_names: bool = True,
+        show_watermark: bool = True,
+        output_filename: str = "preview_cover.jpg",
+    ) -> str | None:
         """
         渲染封面图（3:4）：
         1) 主标题三行（来自文件名中的字面量 \\n）
@@ -78,7 +96,12 @@ class CoverRenderer:
             return None
 
         try:
-            base_img = self._crop_and_resize_to_3_4(image_path, self.cover_config["canvas_size"])
+            # 封面底图支持按赛道独立配置裁剪焦点，默认仍为居中裁剪。
+            base_img = self._crop_and_resize_to_3_4(
+                image_path,
+                self.cover_config["canvas_size"],
+                cover_mode=cover_mode,
+            )
         except Exception as e:
             print(f"   ⛔ 封面底图处理失败: {e}")
             return None
@@ -87,18 +110,23 @@ class CoverRenderer:
         draw_layer = ImageDraw.Draw(txt_layer)
 
         wm_conf = self.cover_config["watermark"]
-        watermark_rows = self._build_cover_watermark_rows(movies)
-
-        if watermark_rows:
-            watermark_layout = self._layout_watermark_blocks(
-                draw_layer, watermark_rows, base_img.size
+        if show_watermark:
+            # 水印开关只控制电影名水印区域；封面三行主标题始终保留。
+            # preview 保持现有中英逻辑；collection 可关闭英文水印，仅保留中文名。
+            watermark_rows = self._build_cover_watermark_rows(
+                movies, show_english_names=show_english_names
             )
-            if watermark_layout is None:
-                print("   ⛔ 封面水印排版失败：文本过长且已触及最小字号。")
-                return None
 
-            for block in watermark_layout["blocks"]:
-                self._draw_watermark_block(draw_layer, wm_conf, block)
+            if watermark_rows:
+                watermark_layout = self._layout_watermark_blocks(
+                    draw_layer, watermark_rows, base_img.size
+                )
+                if watermark_layout is None:
+                    print("   ⛔ 封面水印排版失败：文本过长且已触及最小字号。")
+                    return None
+
+                for block in watermark_layout["blocks"]:
+                    self._draw_watermark_block(draw_layer, wm_conf, block)
 
         merged = Image.alpha_composite(base_img, txt_layer)
         draw_base = ImageDraw.Draw(merged)
@@ -131,9 +159,9 @@ class CoverRenderer:
             current_y += style["size"] + line_spacing
 
         os.makedirs(output_dir, exist_ok=True)
-        save_path = os.path.join(output_dir, "preview_cover.jpg")
+        save_path = os.path.join(output_dir, output_filename)
         merged.convert("RGB").save(save_path, quality=95)
-        print("   ✅ 封面图渲染完成: preview_cover.jpg")
+        print(f"   ✅ 封面图渲染完成: {os.path.basename(save_path)}")
         return save_path
 
     def _layout_watermark_blocks(
@@ -387,7 +415,9 @@ class CoverRenderer:
 
         return lines
 
-    def _build_cover_watermark_rows(self, movies: list) -> list:
+    def _build_cover_watermark_rows(
+        self, movies: list, show_english_names: bool = True
+    ) -> list:
         """
         构建封面水印条目：
         - 每条固定显示中文电影名
@@ -398,14 +428,16 @@ class CoverRenderer:
         if not movies:
             return rows
 
-        show_map = self._decide_cover_en_name_visibility(movies)
+        show_map = {}
+        if show_english_names:
+            show_map = self._decide_cover_en_name_visibility(movies)
         for idx, movie in enumerate(movies):
             cn_name = str(movie.get("name", "")).strip()
             if not cn_name:
                 continue
 
             en_name = ""
-            if (not bool(movie.get("is_china_film"))) and show_map.get(idx):
+            if show_english_names and (not bool(movie.get("is_china_film"))) and show_map.get(idx):
                 en_name = str(movie.get("original_title", "")).strip()
 
             rows.append({"name_cn": cn_name, "name_en": en_name})
@@ -512,24 +544,63 @@ class CoverRenderer:
             return None
         return parsed
 
-    def _crop_and_resize_to_3_4(self, image_path: str, target_size: tuple[int, int]) -> Image.Image:
-        """将图片居中裁剪为 3:4 并缩放到目标尺寸。"""
+    def _crop_and_resize_to_3_4(
+        self,
+        image_path: str,
+        target_size: tuple[int, int],
+        cover_mode: str = "preview",
+    ) -> Image.Image:
+        """将图片按赛道裁剪焦点裁成 3:4，再缩放到目标尺寸。"""
         img = Image.open(image_path).convert("RGBA")
         width, height = img.size
         target_w, target_h = target_size
         target_ratio = target_w / target_h
         current_ratio = width / height
+        focus_x, focus_y = self._resolve_crop_focus(cover_mode)
 
         if current_ratio > target_ratio:
             new_width = int(height * target_ratio)
-            left = (width - new_width) // 2
+            # 宽图场景：只在 X 轴移动裁剪框，Y 轴保持全高。
+            target_center_x = width * focus_x
+            left = int(round(target_center_x - new_width / 2))
+            left = max(0, min(left, width - new_width))
             img = img.crop((left, 0, left + new_width, height))
         elif current_ratio < target_ratio:
             new_height = int(width / target_ratio)
-            top = (height - new_height) // 2
+            # 高图场景：只在 Y 轴移动裁剪框，X 轴保持全宽。
+            target_center_y = height * focus_y
+            top = int(round(target_center_y - new_height / 2))
+            top = max(0, min(top, height - new_height))
             img = img.crop((0, top, width, top + new_height))
 
         return img.resize(target_size, Image.Resampling.LANCZOS)
+
+    def _resolve_crop_focus(self, cover_mode: str) -> tuple[float, float]:
+        """
+        读取并钳制裁剪焦点。
+
+        规则：
+        - 支持 preview / collection 两组独立配置；
+        - 模式非法时回退到 preview；
+        - 任意越界值都会被钳制到 0.0-1.0，避免裁剪框出界。
+        """
+        crop_conf = self.cover_config.get("crop", {})
+        mode_key = str(cover_mode or "preview").strip().lower()
+        if mode_key not in crop_conf:
+            mode_key = "preview"
+
+        mode_conf = crop_conf.get(mode_key, {})
+        focus_x = self._clamp_focus_value(mode_conf.get("focus_x", 0.5))
+        focus_y = self._clamp_focus_value(mode_conf.get("focus_y", 0.5))
+        return focus_x, focus_y
+
+    def _clamp_focus_value(self, value) -> float:
+        """将裁剪焦点值钳制在 0.0-1.0 区间内。"""
+        try:
+            numeric = float(value)
+        except Exception:
+            numeric = 0.5
+        return max(0.0, min(1.0, numeric))
 
     def _draw_text_with_stroke(
         self,
