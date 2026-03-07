@@ -120,11 +120,42 @@ class XHSClient:
             return None
 
 class LLMBrain:
-    """DeepSeek 大脑: 封装 LLM 调用逻辑"""
+    """统一 LLM 大脑：按配置切换 DeepSeek / Qwen 调用逻辑"""
     def __init__(self):
-        self.client = OpenAI(api_key=config.LLM_API_KEY, base_url=config.LLM_BASE_URL)
+        provider = str(
+            getattr(getattr(config.Strategy, "System", None), "LLM_PROVIDER", "deepseek")
+        ).strip().lower()
+        if provider not in {"deepseek", "qwen"}:
+            print(f"⚠️ 未知 LLM_PROVIDER: {provider}，已回退为 deepseek。")
+            provider = "deepseek"
+
+        self.provider = provider
+        self.client = None
+        if self.provider == "deepseek":
+            self.client = OpenAI(api_key=config.LLM_API_KEY, base_url=config.LLM_BASE_URL)
+        elif self.provider == "qwen" and config.QWEN_API_KEY:
+            self.client = OpenAI(
+                api_key=config.QWEN_API_KEY,
+                base_url=self._normalize_qwen_base_url(config.QWEN_BASE_URL),
+            )
+
+    def _normalize_qwen_base_url(self, base_url):
+        """兼容配置完整 chat/completions URL 或 compatible-mode 基础路径。"""
+        url = str(base_url or "").strip().rstrip("/")
+        if not url:
+            return "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+        suffix = "/chat/completions"
+        if url.endswith(suffix):
+            return url[:-len(suffix)]
+        return url
 
     def think(self, prompt, system_prompt="你是一个专业的小红书电影博主。"):
+        if self.provider == "qwen":
+            return self._think_with_qwen(prompt, system_prompt)
+        return self._think_with_deepseek(prompt, system_prompt)
+
+    def _think_with_deepseek(self, prompt, system_prompt):
         try:
             # [保留] 保持原版体验
             print("   🧠 DeepSeek-Reasoner 正在深度思考中...")
@@ -138,7 +169,57 @@ class LLMBrain:
             )
             return response.choices[0].message.content
         except Exception as e:
-            print(f"❌ LLM 调用失败: {e}")
+            print(f"❌ DeepSeek 调用失败: {e}")
+            return None
+
+    def _think_with_qwen(self, prompt, system_prompt):
+        if not config.QWEN_API_KEY:
+            print("❌ Qwen 调用失败: 缺少 QWEN_API_KEY")
+            return None
+
+        if not self.client:
+            print("❌ Qwen 调用失败: Qwen 客户端初始化失败")
+            return None
+
+        try:
+            # 统一走 OpenAI 兼容客户端，规避 requests 在当前环境下的不稳定链路。
+            print("   🧠 Qwen 正在联网思考中...")
+            response = self.client.chat.completions.create(
+                model=config.QWEN_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                stream=False,
+                extra_body={
+                    "enable_search": True,
+                    "search_options": {
+                        "forced_search": True,
+                    },
+                },
+                timeout=120,
+            )
+            choices = getattr(response, "choices", None) or []
+            if not choices:
+                print("❌ Qwen 调用失败: 未返回 choices")
+                return None
+
+            message = getattr(choices[0], "message", None)
+            content = getattr(message, "content", None)
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                text_parts = []
+                for item in content:
+                    if isinstance(item, dict) and item.get("text"):
+                        text_parts.append(str(item["text"]))
+                if text_parts:
+                    return "\n".join(text_parts)
+
+            print("❌ Qwen 调用失败: 返回内容为空")
+            return None
+        except Exception as e:
+            print(f"❌ Qwen 调用失败: {e}")
             return None
 
 

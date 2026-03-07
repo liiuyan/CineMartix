@@ -18,6 +18,11 @@ class Strategy:
         # 运行模式选择: "single" (单片模式) / "collection" (合集盘点模式) / "preview" (新片速递模式)
         RUN_MODE: str = "collection"
 
+        # LLM 提供方选择:
+        # - "deepseek": 使用当前 DeepSeek-Reasoner 调用链路
+        # - "qwen": 使用 DashScope Qwen 文本模型，并默认开启强制联网搜索
+        LLM_PROVIDER: str = "qwen"
+
         # [新增] 发布前决策菜单总开关
         # True: 启用发布前菜单（single=4选项，collection/preview=3选项）
         # False: 直接立即发布（不弹菜单）
@@ -336,8 +341,17 @@ if not os.path.exists(LOCAL_SCORES_FILE):
 
 # ================= API 密钥配置 =================
 # 必须在 .env 文件中配置这些 Key（项目启动时会读取）
+# DeepSeek（当 LLM_PROVIDER="deepseek" 时使用）
 LLM_API_KEY = os.getenv("LLM_API_KEY")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepseek.com")
+
+# Qwen / DashScope（当 LLM_PROVIDER="qwen" 时使用）
+QWEN_API_KEY = os.getenv("QWEN_API_KEY")
+QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen3.5-plus")
+QWEN_BASE_URL = os.getenv(
+    "QWEN_BASE_URL",
+    "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+)
 SEARCH_API_KEY = os.getenv("SEARCH_API_KEY")  # 搜索 API 兼容 Key (可作为 SERPER_API_KEY 备用)
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 OMDB_API_KEY = os.getenv("OMDB_API_KEY")  # OMDB Key (用于烂番茄/MTC分数)

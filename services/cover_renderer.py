@@ -56,7 +56,7 @@ class CoverRenderer:
                     # - offset_y: 在当前行默认 y 基础上上下微调（+ 下移，- 上移）
 
                     # 第 1 行样式（主视觉）
-                    {"font_path": config.FONT_TITLE_PATH, "size": 120, "offset_x": 0, "offset_y": 40}, 
+                    {"font_path": config.FONT_TITLE_PATH, "size": 120, "offset_x": -130, "offset_y": 20}, 
                     # 第 2 行样式
                     {"font_path": config.FONT_TITLE_PATH, "size": 120, "offset_x": 0, "offset_y": 0},  
                     # 第 3 行样式（可空，空行仅占位）

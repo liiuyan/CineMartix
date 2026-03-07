@@ -374,7 +374,11 @@ class MetaFetcher:
             仅输出一个数字字符串（例如 "9.2" 或 "N/A"），严禁包含任何其他文字、符号或解释。
             """
             
-            score = self.brain.think(prompt, system_prompt="你是一个数据提取器。").strip()
+            score_raw = self.brain.think(prompt, system_prompt="你是一个数据提取器。")
+            if not score_raw:
+                return None
+
+            score = str(score_raw).strip()
             
             match = re.search(r"\d+\.\d", score)
             if match: return match.group(0)

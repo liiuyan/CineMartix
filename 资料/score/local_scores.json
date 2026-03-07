@@ -385,5 +385,41 @@
     "rotten_tomatoes": "100%",
     "metacritic": "100",
     "douban": "8.8"
+  },
+  "谍影重重": {
+    "imdb": "7.8",
+    "rotten_tomatoes": "84%",
+    "metacritic": "68",
+    "douban": "8.6"
+  },
+  "谍影重重2": {
+    "imdb": "7.7",
+    "rotten_tomatoes": "81%",
+    "metacritic": "73",
+    "douban": "8.7"
+  },
+  "谍影重重3": {
+    "imdb": "8.0",
+    "rotten_tomatoes": "92%",
+    "metacritic": "85",
+    "douban": "8.9"
+  },
+  "飞驰人生": {
+    "imdb": "6.3",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "6.8"
+  },
+  "飞驰人生2": {
+    "imdb": "6.9",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "7.6"
+  },
+  "飞驰人生3": {
+    "imdb": "N/A",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "7.3"
   }
 }

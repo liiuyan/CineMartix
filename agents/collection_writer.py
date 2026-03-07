@@ -29,6 +29,16 @@ class CollectionWriterAgent:
     def __init__(self):
         self.brain = LLMBrain()
 
+    def _normalize_movie_name_for_match(self, name: str) -> str:
+        """
+        仅做保守标准化：去除空白并统一小写。
+        用于兼容“飞驰人生2”与“飞驰人生 2”这类格式差异，
+        但避免使用高风险的包含匹配把同一条 AI 结果复用到多部系列片。
+        """
+        if not name:
+            return ""
+        return "".join(str(name).split()).lower()
+
     def run(self, theme: str, title: str, movies: list) -> dict | None:
         """
         执行合集文案生成逻辑。
@@ -160,10 +170,27 @@ class CollectionWriterAgent:
         # --- 核心机制：安全对齐装配 ---
         # 为了防止 AI 的幻觉（漏写某部电影，或改了电影名字），
         # 我们以原来真实的 movies 列表为主轴，去 data['movies_content'] 里捞数据。
-        ai_movie_contents = {item['name']: item for item in data.get('movies_content', [])}
-        
-        # [新增] 提取 AI 返回的电影名，并按长度从大到小排序，用于模糊兜底匹配
-        sorted_ai_names = sorted(ai_movie_contents.keys(), key=len, reverse=True)
+        ai_movie_contents = {}
+        ai_movie_contents_normalized = {}
+        ambiguous_normalized_names = set()
+        for item in data.get('movies_content', []):
+            item_name = str(item.get('name', '')).strip()
+            if not item_name:
+                continue
+
+            ai_movie_contents[item_name] = item
+
+            normalized_name = self._normalize_movie_name_for_match(item_name)
+            if not normalized_name:
+                continue
+
+            # 若标准化后出现重名，说明 AI 返回的名字本身已不可靠。
+            # 此时放弃标准化匹配，避免把同一条内容错误复用到多部电影。
+            if normalized_name in ai_movie_contents_normalized:
+                ambiguous_normalized_names.add(normalized_name)
+                ai_movie_contents_normalized.pop(normalized_name, None)
+            elif normalized_name not in ambiguous_normalized_names:
+                ai_movie_contents_normalized[normalized_name] = item
         
         for movie in movies:
             movie_name = movie['name']
@@ -173,11 +200,16 @@ class CollectionWriterAgent:
             if movie_name in ai_movie_contents:
                 matched_data = ai_movie_contents[movie_name]
             else:
-                # [修改] 2. 长度降序的模糊兜底：如果 AI 返回的名字和我们的名字互相包含即可
-                for ai_name in sorted_ai_names:
-                    if ai_name in movie_name or movie_name in ai_name:
-                        matched_data = ai_movie_contents[ai_name]
-                        break
+                # [修复] 2. 仅允许标准化后的保守精确匹配，禁止跨片包含匹配。
+                normalized_movie_name = self._normalize_movie_name_for_match(movie_name)
+                if normalized_movie_name in ambiguous_normalized_names:
+                    print(f"      ⚠️ AI 返回的电影名存在冲突，无法安全对齐《{movie_name}》，已放弃模糊匹配。")
+                else:
+                    matched_data = ai_movie_contents_normalized.get(normalized_movie_name)
+                    if matched_data:
+                        matched_name = str(matched_data.get('name', '')).strip()
+                        if matched_name != movie_name:
+                            print(f"      ℹ️ 已对《{movie_name}》使用标准化片名匹配（AI 返回：{matched_name}）。")
             
             if matched_data:
                 movie['quote'] = matched_data.get('quote', '').strip()

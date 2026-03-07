@@ -1,5 +1,5 @@
 # 文件名: agents/execution.py
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import sys
 
 import config
@@ -172,7 +172,15 @@ class ExecutionAgent:
         要求 ISO8601 且必须包含时区，例如:
         2026-02-26T21:30:00+08:00
         """
-        print("   ⏰ 请输入定时发布时间 (ISO8601)，示例: 2026-02-26T21:30:00+08:00")
+        # 动态示例：始终给出北京时间“最近一次可用的 17:30”（当天未到则当天，已过则次日）。
+        cst_tz = timezone(timedelta(hours=8))
+        now_cst = datetime.now(cst_tz)
+        example_dt = now_cst.replace(hour=17, minute=30, second=0, microsecond=0)
+        if now_cst >= example_dt:
+            example_dt = example_dt + timedelta(days=1)
+        example_iso = example_dt.isoformat(timespec="seconds")
+
+        print(f"   ⏰ 请输入定时发布时间 (ISO8601)，示例: {example_iso}")
         print("   ↩️ 输入 q 返回上一步。")
 
         while True:

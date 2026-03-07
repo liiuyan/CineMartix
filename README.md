@@ -118,9 +118,15 @@ pip install openai requests python-dotenv pillow torch transformers
 在项目根目录创建或编辑 `.env`：
 
 ```env
-# DeepSeek (LLMBrain)
+# DeepSeek (当 LLM_PROVIDER="deepseek" 时使用)
 LLM_API_KEY=...
 LLM_BASE_URL=https://api.deepseek.com
+
+# Qwen / DashScope (当 LLM_PROVIDER="qwen" 时使用；以下示例为北京部署 + qwen3.5-plus)
+QWEN_API_KEY=...
+QWEN_MODEL=qwen3.5-plus
+# 可选，不填则默认北京地域 compatible-mode 接口
+QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
 
 # Movie APIs
 TMDB_API_KEY=...
@@ -135,6 +141,9 @@ GEMINI_MODEL=gemini-2.5-flash
 
 说明：
 
+- `LLM_PROVIDER="qwen"` 时，`LLMBrain` 会默认开启 Qwen 强制联网搜索，用于补足最新事实信息；`Gemini` 的 preview 兜底职责不受影响。
+- 北京部署下使用 `qwen3.5-plus` 时，请走 DashScope `compatible-mode`，不要使用旧的 `.../api/v1/services/aigc/text-generation/generation`；否则可能返回 `400 url error`。
+- 项目内部对 Qwen 使用 OpenAI 兼容客户端调用；`QWEN_BASE_URL` 允许直接填写完整的 `.../compatible-mode/v1/chat/completions` 地址，程序会自动归一化处理。
 - 豆瓣/搜索链路优先使用 `SERPER_API_KEY`，未配置时回退 `SEARCH_API_KEY`。
 - preview 的 Gemini 硬必填兜底仅在 `GEMINI_API_KEY` 存在且 `GEMINI_MAX_GROUNDING_PER_MOVIE > 0` 时触发；噱头专项尝试由 `GEMINI_HOOK_ATTEMPTS` 控制。
 - 发布服务地址固定在 `config.py`：`http://localhost:18060/api/v1`。
@@ -245,6 +254,9 @@ python3 main.py
 - `mode_two` 简介长度严格校验（配置区间，默认 55-80）
 - `mode_two` 的相邻两部电影简介之间会空 1 行，避免正文连成一整段
 - `mode_one` 发散段严格校验（配置区间，默认 250-600；超出区间会重写）
+- `movies_content` 对齐时，先做原片名精确匹配；若 AI 返回名仅存在空格差异（如 `飞驰人生2` / `飞驰人生 2`），会走标准化后的保守精确匹配
+- 不再使用“片名互相包含就复用文案”的兜底规则，避免系列片（如 `飞驰人生` / `飞驰人生2` / `飞驰人生3`）误用同一条金句或简介
+- 若 AI 返回的电影名无法安全对齐，对应电影会回退到默认文案兜底，而不是错误复用其他电影内容
 - 标题 `<=20`
 - `正文 + tags <= 990`
 
@@ -509,8 +521,12 @@ preview 现在不是“先把所有电影整批查完再统一写文案”，而
 
 可直接用的格式示例：
 
-- `2026-03-01T21:30:00+08:00`
-- `2026-03-01T09:00:00+00:00`
+- 菜单中的示例会按北京时间动态显示“最近一次可用的 17:30”
+- 若当前北京时间尚未到 `17:30`，示例显示“当天 `17:30`”
+- 若当前北京时间已过 `17:30`，示例显示“次日 `17:30`”
+- 你也可以手动输入任意合法的 ISO8601 时间，例如：
+  - `2026-03-01T21:30:00+08:00`
+  - `2026-03-01T09:00:00+00:00`
 
 常见错误示例：
 
@@ -532,6 +548,7 @@ preview 现在不是“先把所有电影整批查完再统一写文案”，而
 ```python
 class Strategy:
     class System:
+        LLM_PROVIDER = "deepseek"    # 可选: "deepseek" / "qwen"
         RUN_MODE = "single"          # single / collection / preview
         ENABLE_PUBLISH_DECISION_MENU = True  # 发布前菜单总开关
         USE_LOCAL_SCORES = True       # 仅合集模式有效

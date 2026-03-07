@@ -37,7 +37,7 @@ import config
 from services.cover_renderer import CoverRenderer
 
 
-TEST_IMAGE_PATH = "/Users/lihouyan/Documents/codes/little_red/资料/collections/电影三部曲｜那些影史上经典的三部曲——红白蓝/2.jpg"
+TEST_IMAGE_PATH = "/Users/lihouyan/Documents/codes/little_red/资料/collections/电影三部曲｜那些影史上经典的三部曲——谍影重重/1 11.49.47.jpg"
 OUTPUT_PATH = os.path.join(config.BASE_DIR, "test_cover_output.jpg")
 TEMP_OUTPUT_DIR = os.path.join(config.BASE_DIR, ".cover_test_output")
 
@@ -57,7 +57,7 @@ TEST_FOCUS_Y = None
 
 TEST_COVER_DATA = {
     "path": TEST_IMAGE_PATH,
-    "title_lines": ["蓝白红三部曲", "", " "],
+    "title_lines": ["谍影重重三部曲", "", " "],
     "raw_title": r"在海风尽头\n所有名字都会\n重新发光",
 }
 
