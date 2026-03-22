@@ -607,5 +607,41 @@
     "rotten_tomatoes": "64%",
     "metacritic": "73",
     "douban": "6.1"
+  },
+  "魔鬼银爪": {
+    "imdb": "6.7",
+    "rotten_tomatoes": "88%",
+    "metacritic": "70",
+    "douban": "6.5"
+  },
+  "异形 3": {
+    "imdb": "6.4",
+    "rotten_tomatoes": "44%",
+    "metacritic": "59",
+    "douban": "7.2"
+  },
+  "迷情漩涡": {
+    "imdb": "6.7",
+    "rotten_tomatoes": "79%",
+    "metacritic": "66",
+    "douban": "6.6"
+  },
+  "瓶装火箭": {
+    "imdb": "6.9",
+    "rotten_tomatoes": "86%",
+    "metacritic": "67",
+    "douban": "7.0"
+  },
+  "追随": {
+    "imdb": "7.4",
+    "rotten_tomatoes": "82%",
+    "metacritic": "60",
+    "douban": "8.9"
+  },
+  "公园长椅上的盖伊与玛德琳": {
+    "imdb": "6.0",
+    "rotten_tomatoes": "92%",
+    "metacritic": "83",
+    "douban": "6.7"
   }
 }

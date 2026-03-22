@@ -140,7 +140,12 @@ class Strategy:
         # [新增] collection 封面水印开关
         # True: 在合集封面上绘制电影名水印
         # False: 仅保留封面三行主标题，不绘制电影名水印
-        COLLECTION_COVER_SHOW_WATERMARK: bool = False
+        COLLECTION_COVER_SHOW_WATERMARK: bool = True
+
+        # [新增] collection 封面英文水印开关
+        # True: 允许在合集封面水印中显示英文原名（仍会经过语言判定）
+        # False: 合集封面水印仅显示中文片名
+        COLLECTION_COVER_SHOW_ENGLISH_NAMES: bool = True
 
     class Preview:
         """[v5.0 新增] 新片速递模式配置 (Preview Mode)"""
@@ -256,6 +261,11 @@ class Strategy:
         # True: 在 preview 封面上绘制电影名水印
         # False: 仅保留封面三行主标题，不绘制电影名水印
         COVER_SHOW_WATERMARK: bool = True
+
+        # [新增] preview 封面英文水印开关
+        # True: 允许在 preview 封面水印中显示英文原名（仍会经过语言判定）
+        # False: preview 封面水印仅显示中文片名
+        COVER_SHOW_ENGLISH_NAMES: bool = True
 
         # ================= preview 临时缓存 =================
         # 仅保留最近 N 次 preview 任务缓存；每次任务内部按“单部电影完整完成”写入。

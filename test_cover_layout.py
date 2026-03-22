@@ -37,16 +37,16 @@ import config
 from services.cover_renderer import CoverRenderer
 
 
-TEST_IMAGE_PATH = "/Users/lihouyan/Documents/codes/little_red/资料/collections/_done/克里斯蒂安贝尔｜机械师到副总统，橡皮人贝尔六次疯狂变身/1.jpg"
+TEST_IMAGE_PATH = "/Users/lihouyan/Documents/电影图片资源/collections/store/知名导演｜六位美国现代名导的处女作/1.jpg"
 OUTPUT_PATH = os.path.join(config.BASE_DIR, "test_cover_output.jpg")
 TEMP_OUTPUT_DIR = os.path.join(config.BASE_DIR, ".cover_test_output")
 
 # 测试模式参数：
 # - TEST_COVER_MODE: "preview" / "collection"
 # - TEST_SHOW_WATERMARK: 是否绘制电影名水印
-# - TEST_SHOW_ENGLISH_NAMES: None 表示跟随赛道默认值（preview=True, collection=False）
+# - TEST_SHOW_ENGLISH_NAMES: None 表示跟随 config.py 中对应赛道的正式默认值
 TEST_COVER_MODE = "collection"
-TEST_SHOW_WATERMARK = False
+TEST_SHOW_WATERMARK = True
 TEST_SHOW_ENGLISH_NAMES = None
 
 # 测试态裁剪焦点覆盖：
@@ -57,7 +57,7 @@ TEST_FOCUS_Y = None
 
 TEST_COVER_DATA = {
     "path": TEST_IMAGE_PATH,
-    "title_lines": ["克里斯蒂安", "贝尔", " "],
+    "title_lines": ["6位", "美国现代名导", "长片处女作"],
     "raw_title": r"在海风尽头\n所有名字都会\n重新发光",
 }
 
@@ -131,12 +131,19 @@ def build_renderer() -> CoverRenderer:
 def _resolve_test_show_english_names() -> bool:
     """
     解析测试脚本中的英文名开关。
-    None 时按赛道默认值走：
-    - preview: 显示英文名
-    - collection: 不显示英文名
+    None 时跟随 config.py 中对应赛道的正式默认值。
     """
     if TEST_SHOW_ENGLISH_NAMES is None:
-        return str(TEST_COVER_MODE).strip().lower() == "preview"
+        mode_key = str(TEST_COVER_MODE).strip().lower()
+        if mode_key == "collection":
+            return bool(
+                getattr(
+                    config.Strategy.Visual,
+                    "COLLECTION_COVER_SHOW_ENGLISH_NAMES",
+                    False,
+                )
+            )
+        return bool(getattr(config.Strategy.Preview, "COVER_SHOW_ENGLISH_NAMES", True))
     return bool(TEST_SHOW_ENGLISH_NAMES)
 
 

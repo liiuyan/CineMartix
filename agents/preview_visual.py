@@ -52,6 +52,10 @@ class PreviewVisualAgent:
         self.cover_show_watermark = bool(
             getattr(config.Strategy.Preview, "COVER_SHOW_WATERMARK", True)
         )
+        # preview 封面英文原名单独受配置控制；关闭时仅保留中文水印。
+        self.cover_show_english_names = bool(
+            getattr(config.Strategy.Preview, "COVER_SHOW_ENGLISH_NAMES", True)
+        )
 
         # 统一维护“海报文字层”样式，避免在渲染流程里散落魔法数字。
         # 坐标体系:
@@ -132,6 +136,7 @@ class PreviewVisualAgent:
                 movies,
                 output_dir,
                 cover_mode="preview",
+                show_english_names=self.cover_show_english_names,
                 show_watermark=self.cover_show_watermark,
             )
             if not cover_path:

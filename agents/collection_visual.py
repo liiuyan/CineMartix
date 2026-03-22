@@ -61,7 +61,15 @@ class CollectionVisualAgent:
         self.cover_show_watermark = bool(
             getattr(config.Strategy.Visual, "COLLECTION_COVER_SHOW_WATERMARK", True)
         )
-        # 合集封面直接复用 preview 的封面渲染器，但关闭英文水印。
+        # 合集封面英文原名单独受配置控制，避免和“整块水印开关”耦合。
+        self.cover_show_english_names = bool(
+            getattr(
+                config.Strategy.Visual,
+                "COLLECTION_COVER_SHOW_ENGLISH_NAMES",
+                False,
+            )
+        )
+        # 合集封面直接复用 preview 的封面渲染器。
         self.cover_renderer = CoverRenderer()
 
     def run(self, movies: list, folder_path: str, cover_data: dict | None = None) -> list:
@@ -84,13 +92,13 @@ class CollectionVisualAgent:
         os.makedirs(output_dir, exist_ok=True)
         cover_path = None
         if cover_data:
-            # 合集封面只显示中文电影名水印，不触发英文名判定。
+            # 英文原名显示与否由独立开关控制；开启后仍会走统一判定逻辑。
             cover_path = self.cover_renderer.render(
                 cover_data,
                 movies,
                 output_dir,
                 cover_mode="collection",
-                show_english_names=False,
+                show_english_names=self.cover_show_english_names,
                 show_watermark=self.cover_show_watermark,
                 output_filename="collection_cover.jpg",
             )

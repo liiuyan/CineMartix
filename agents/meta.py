@@ -105,6 +105,10 @@ class MetaFetcher:
         tmdb_id = base_info.get("tmdb_id") # [保留] 确保获取 TMDB ID
         final_year = base_info.get("year", "")
         official_cn_name = base_info.get("official_cn_title", movie_name) # 获取官方译名
+        tmdb_original_title = str(base_info.get("original_title", "")).strip()
+        original_language = str(base_info.get("original_language", "")).strip()
+        if not original_title:
+            original_title = tmdb_original_title
         
         print(f"   ✅ TMDB 锚定成功: ID={imdb_id}, Year={final_year}, 官方中译=《{official_cn_name}》")
 
@@ -122,6 +126,11 @@ class MetaFetcher:
                 print(f"   💰 票房数据获取: 约 {revenue_cny / 100000000:.1f} 亿人民币")
             print(f"   🌍 类型/地区获取: {genres} | {region}")
 
+        is_china_film = self._is_china_film(original_language, region)
+        normalized_original_title = ""
+        if not is_china_film:
+            normalized_original_title = str(original_title or "").strip()
+
         local_scores = self._load_local_scores()
         cache_lookup_key = cache_key.strip() if isinstance(cache_key, str) and cache_key.strip() else movie_name
         movie_cache = local_scores.get(cache_lookup_key, {})
@@ -135,7 +144,9 @@ class MetaFetcher:
             "douban": "N/A",
             "revenue_cny": revenue_cny, # [新增] 注入票房数据
             "genres": genres,           # [新增] 注入类型数据
-            "region": region            # [新增] 注入国家地区数据
+            "region": region,           # [新增] 注入国家地区数据
+            "original_title": normalized_original_title,  # 供合集/封面复用原名
+            "is_china_film": is_china_film,  # 与 preview 保持一致的英文显示判定前置条件
         }
 
         # === Step 2: 西方数据 (OMDB) ===
@@ -263,7 +274,9 @@ class MetaFetcher:
                 "tmdb_id": movie_id,
                 "imdb_id": external_ids.get("imdb_id"),
                 "year": final_year,
-                "official_cn_title": official_cn_title
+                "official_cn_title": official_cn_title,
+                "original_title": str(top_result.get("original_title", "")).strip(),
+                "original_language": str(top_result.get("original_language", "")).strip(),
             }
         except Exception as e:
             print(f"   ⚠️ TMDB Base 获取失败: {e}")
@@ -389,6 +402,15 @@ class MetaFetcher:
         except Exception as e:
             print(f"   ⚠️ 豆瓣分数获取失败: {e}")
             return None
+
+    def _is_china_film(self, original_language: str, region_text: str) -> bool:
+        """中国电影判定：语言为 zh 或地区包含中国相关标记。"""
+        lang = str(original_language or "").strip().lower()
+        region = str(region_text or "")
+        if lang == "zh":
+            return True
+        china_markers = ["中国", "中国香港", "中国澳门", "中国台湾"]
+        return any(x in region for x in china_markers)
     
     # ==========================================
     # [重构 板块5] 从 WriterAgent 迁入的评论获取能力

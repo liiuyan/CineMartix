@@ -15,7 +15,15 @@ class CollectionMetaFetcher:
     def __init__(self):
         # [重构 板块8] 删除 self.local_scores_file — 文件路径由 MetaFetcher 统一持有
         self.use_local = getattr(config.Strategy.System, 'USE_LOCAL_SCORES', True)
-        self.api_fetcher = MetaFetcher() 
+        self.api_fetcher = MetaFetcher()
+        # 封面英文水印与片单扩展字段都依赖 fetch_all 返回的元数据。
+        self.need_cover_meta = bool(
+            getattr(config.Strategy.Visual, 'COLLECTION_COVER_SHOW_ENGLISH_NAMES', False)
+        )
+        self.need_display_meta = any(
+            bool(getattr(config.Strategy.Writer, attr, False))
+            for attr in ('SHOW_YEAR', 'SHOW_GENRE', 'SHOW_REGION')
+        )
 
     def run(self, movies: list) -> list:
         """
@@ -43,6 +51,7 @@ class CollectionMetaFetcher:
             douban_score = ""
             imdb_score = ""
             rotten_tomatoes_score = ""  # [本次新增] 合集片单可选展示烂番茄评分
+            api_data = {}
             
             lock_log = ""
             if lock_year:
@@ -73,6 +82,17 @@ class CollectionMetaFetcher:
                 douban_score = str(local_data.get('douban', '')).strip()
                 imdb_score = str(local_data.get('imdb', '')).strip()
                 rotten_tomatoes_score = str(local_data.get('rotten_tomatoes', '')).strip()
+                # 分数可直接走缓存，但封面英文水印/片单扩展字段仍需补齐元数据。
+                if self.need_cover_meta or self.need_display_meta:
+                    try:
+                        api_data = self.api_fetcher.fetch_all(
+                            movie_name,
+                            specific_year=lock_year,
+                            specific_original_title=lock_original_title,
+                            cache_key=cache_key
+                        )
+                    except Exception as e:
+                        print(f"      ⚠️ 元数据补齐失败 (已拦截): {e}")
             
             # --- 方案 B: 降级调用网络 API 抓取 (增量补齐或全量抓取) ---
             else:
@@ -94,16 +114,19 @@ class CollectionMetaFetcher:
                     douban_score = str(api_data.get('douban', '')).strip()
                     imdb_score = str(api_data.get('imdb', '')).strip()
                     rotten_tomatoes_score = str(api_data.get('rotten_tomatoes', '')).strip()
-
-                    # [本次新增] 回写可选展示字段，供片单追加开关使用
-                    movie['year'] = str(api_data.get('year', '')).strip()
-                    movie['genres'] = str(api_data.get('genres', '')).strip()
-                    movie['region'] = str(api_data.get('region', '')).strip()
                 except Exception as e:
                     # 【核心修改】拦截原版的异常熔断！合集模式必须保证后续电影能继续处理
                     # 语义：单片失败只影响当前项，不应拖垮整夹任务。
                     print(f"      ⚠️ API 抓取异常或无数据 (已拦截): {e}")
-            
+
+            if api_data:
+                # 统一在这里回写，保证“缓存命中”和“API 抓取”两条路径产出的字段口径一致。
+                movie['year'] = str(api_data.get('year', movie.get('year', ''))).strip()
+                movie['genres'] = str(api_data.get('genres', movie.get('genres', ''))).strip()
+                movie['region'] = str(api_data.get('region', movie.get('region', ''))).strip()
+                movie['original_title'] = str(api_data.get('original_title', '')).strip()
+                movie['is_china_film'] = bool(api_data.get('is_china_film', False))
+
             # --- 数据清洗与校验 ---
             # 统一处理无效值 (API 可能会返回 "N/A"，我们将其转为空，供下游视觉生成器判断)
             invalid_vals = {"N/A", "None", "null", "none", ""}

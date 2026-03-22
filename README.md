@@ -273,9 +273,10 @@ python3 main.py
 - 余数单图独立输出
 - 当 `DETAIL_IMAGE_TYPE="rendered"` 时，追加的渲染单图比例会跟随上面的开关（16:9 或 9:4）；`original` 原图追加不受影响
 - 若存在封面图（`|0/｜0`），会渲染为 3:4（`1200x1600`）并输出 `output/collection_cover.jpg`
-- 合集封面只显示中文电影名水印，不显示英文名
+- 合集封面默认只显示中文电影名水印；当 `Strategy.Visual.COLLECTION_COVER_SHOW_ENGLISH_NAMES=True` 时，才允许显示英文名
 - 最终发布序列中，合集封面固定插入第 1 张；后面的长图/单图追加顺序保持原逻辑
 - `Strategy.Visual.COLLECTION_COVER_SHOW_WATERMARK=False` 时，只关闭电影名水印区域，封面三行主标题仍然保留
+- `Strategy.Visual.COLLECTION_COVER_SHOW_ENGLISH_NAMES=False` 时，即使保留水印区域，也只显示中文名
 - collection 封面底图裁剪焦点维护在 `services/cover_renderer.py` 的 `CoverRenderer.cover_config["crop"]["collection"]`
   - 默认 `focus_x=0.5`、`focus_y=0.5`，等价于居中裁剪
   - `focus_y` 更小表示更偏上裁，更大表示更偏下裁
@@ -470,7 +471,7 @@ preview 现在不是“先把所有电影整批查完再统一写文案”，而
 
 - 水印数据来源：同任务目录下除封面外的电影条目
 - 中文名支持自适应换行，最多 2 行
-- 英文名第 2 行显示条件：非中国电影 + 有 `original_title` + DeepSeek 判定为可展示英文名
+- 英文名第 2 行显示条件：英文名开关开启 + 非中国电影 + 有 `original_title` + DeepSeek 判定为可展示英文名
 - 英文名支持自适应换行，最多 2 行
 - 非中国电影若只有非英文原名，不显示第 2 行
 - 中国电影不显示英文名
@@ -572,6 +573,7 @@ class Strategy:
         DETAIL_IMAGE_TYPE = "original"   # original / rendered
         COLLECTION_USE_9_4_RENDER = True   # False: 16:9→16:27, True: 9:4→3:4
         COLLECTION_COVER_SHOW_WATERMARK = True
+        COLLECTION_COVER_SHOW_ENGLISH_NAMES = False
 
     class Writer:
         ENABLE_TITLE_EMOJI = True
@@ -633,6 +635,7 @@ class Strategy:
         LANDSCAPE_USE_9_4_RENDER = False  # False: 16:9→16:27, True: 9:4→3:4
         APPEND_ORIGINAL_IMAGES = True
         COVER_SHOW_WATERMARK = True
+        COVER_SHOW_ENGLISH_NAMES = True
         COVER_EN_NAME_RETRY_TIMES = 3
         PREVIEW_CACHE_MAX_TASKS = 5
 ```
@@ -649,6 +652,9 @@ class Strategy:
 - preview 与 collection 的封面水印开关已拆分：
   - `Strategy.Preview.COVER_SHOW_WATERMARK`
   - `Strategy.Visual.COLLECTION_COVER_SHOW_WATERMARK`
+- preview 与 collection 的封面英文水印开关已拆分：
+  - `Strategy.Preview.COVER_SHOW_ENGLISH_NAMES`
+  - `Strategy.Visual.COLLECTION_COVER_SHOW_ENGLISH_NAMES`
 - preview 临时缓存文件路径为 `资料/cache/preview_cache.json`
 - 未使用配置项 `LOCAL_FONT_PATH` 已移除，避免误导
 - 注释已恢复为“可操作型说明”，短说明优先同行注释，便于快速阅读
@@ -659,7 +665,7 @@ class Strategy:
 - 可在脚本顶部直接修改：
   - `TEST_COVER_MODE = "preview" / "collection"`
   - `TEST_SHOW_WATERMARK = True / False`
-  - `TEST_SHOW_ENGLISH_NAMES = None / True / False`
+  - `TEST_SHOW_ENGLISH_NAMES = None / True / False`（`None` 表示跟随 `config.py` 当前正式默认值）
   - `TEST_FOCUS_X = None / 0.0-1.0`
   - `TEST_FOCUS_Y = None / 0.0-1.0`
 - 当 `TEST_FOCUS_X/Y = None` 时，会沿用 `CoverRenderer.cover_config` 的正式配置
