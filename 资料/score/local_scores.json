@@ -421,5 +421,191 @@
     "rotten_tomatoes": "N/A",
     "metacritic": "N/A",
     "douban": "7.3"
+  },
+  "怪物史瑞克": {
+    "imdb": "7.9",
+    "rotten_tomatoes": "88%",
+    "metacritic": "84",
+    "douban": "8.0"
+  },
+  "千与千寻": {
+    "imdb": "8.6",
+    "rotten_tomatoes": "96%",
+    "metacritic": "96",
+    "douban": "9.4"
+  },
+  "海底总动员": {
+    "imdb": "8.2",
+    "rotten_tomatoes": "99%",
+    "metacritic": "90",
+    "douban": "8.5"
+  },
+  "超人总动员": {
+    "imdb": "8.0",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "90",
+    "douban": "8.2"
+  },
+  "超级无敌掌门狗：人兔的诅咒": {
+    "imdb": "7.5",
+    "rotten_tomatoes": "95%",
+    "metacritic": "87",
+    "douban": "8.3"
+  },
+  "快乐的大脚": {
+    "imdb": "6.4",
+    "rotten_tomatoes": "76%",
+    "metacritic": "77",
+    "douban": "7.5"
+  },
+  "机械师｜2004": {
+    "imdb": "7.6",
+    "rotten_tomatoes": "77%",
+    "metacritic": "61",
+    "douban": "7.6"
+  },
+  "重见天日｜2007": {
+    "imdb": "7.3",
+    "rotten_tomatoes": "90%",
+    "metacritic": "77",
+    "douban": "7.6"
+  },
+  "斗士｜2010": {
+    "imdb": "7.8",
+    "rotten_tomatoes": "91%",
+    "metacritic": "79",
+    "douban": "7.9"
+  },
+  "美国骗局": {
+    "imdb": "7.2",
+    "rotten_tomatoes": "92%",
+    "metacritic": "90",
+    "douban": "6.8"
+  },
+  "副总统｜2018": {
+    "imdb": "7.2",
+    "rotten_tomatoes": "64%",
+    "metacritic": "61",
+    "douban": "7.0"
+  },
+  "非穷尽列举": {
+    "imdb": "N/A",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "9.3"
+  },
+  "龙猫": {
+    "imdb": "8.1",
+    "rotten_tomatoes": "94%",
+    "metacritic": "87",
+    "douban": "9.2"
+  },
+  "哈尔的移动城堡": {
+    "imdb": "8.2",
+    "rotten_tomatoes": "88%",
+    "metacritic": "82",
+    "douban": "9.1"
+  },
+  "幽灵公主": {
+    "imdb": "8.3",
+    "rotten_tomatoes": "93%",
+    "metacritic": "78",
+    "douban": "8.9"
+  },
+  "侧耳倾听｜1995": {
+    "imdb": "7.8",
+    "rotten_tomatoes": "95%",
+    "metacritic": "75",
+    "douban": "8.9"
+  },
+  "借东西的小人阿莉埃蒂": {
+    "imdb": "7.6",
+    "rotten_tomatoes": "94%",
+    "metacritic": "80",
+    "douban": "8.9"
+  },
+  "起风了": {
+    "imdb": "7.8",
+    "rotten_tomatoes": "88%",
+    "metacritic": "83",
+    "douban": "8.2"
+  },
+  "惊天魔盗团": {
+    "imdb": "7.2",
+    "rotten_tomatoes": "51%",
+    "metacritic": "50",
+    "douban": "7.8"
+  },
+  "惊天魔盗团2": {
+    "imdb": "6.4",
+    "rotten_tomatoes": "34%",
+    "metacritic": "46",
+    "douban": "7.0"
+  },
+  "惊天魔盗团3": {
+    "imdb": "5.9",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "50",
+    "douban": "5.7"
+  },
+  "只是爱着你": {
+    "imdb": "7.4",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "7.9"
+  },
+  "情书｜1995": {
+    "imdb": "7.9",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "8.9"
+  },
+  "花束般的恋爱": {
+    "imdb": "7.5",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "8.6"
+  },
+  "借着雨点说爱你": {
+    "imdb": "7.8",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "8.5"
+  },
+  "翼": {
+    "imdb": "7.5",
+    "rotten_tomatoes": "94%",
+    "metacritic": "78",
+    "douban": "7.9"
+  },
+  "百老汇旋律": {
+    "imdb": "5.6",
+    "rotten_tomatoes": "42%",
+    "metacritic": "66",
+    "douban": "6.1"
+  },
+  "西线无战事": {
+    "imdb": "7.8",
+    "rotten_tomatoes": "90%",
+    "metacritic": "76",
+    "douban": "8.5"
+  },
+  "壮志千秋": {
+    "imdb": "6.4",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "7.1"
+  },
+  "大饭店": {
+    "imdb": "7.3",
+    "rotten_tomatoes": "85%",
+    "metacritic": "79",
+    "douban": "7.7"
+  },
+  "乱世春秋": {
+    "imdb": "5.8",
+    "rotten_tomatoes": "64%",
+    "metacritic": "73",
+    "douban": "6.1"
   }
 }

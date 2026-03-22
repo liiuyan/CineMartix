@@ -247,13 +247,19 @@ python3 main.py
 
 - `mode_one`：片单 + 过渡语 + 发散 + CTA + 进度
 - `mode_two`：片单 + 过渡语 + 每部简介 + CTA + 进度
+- `mode_four`：片单 + 过渡语 + 每部纯电影简介 + CTA + 进度
+- `mode_five`：片单 + 过渡语 + 发散 + 每部纯电影简介 + CTA + 进度
 - `mode_three`：片单 + 核心总结 + CTA + 进度
 
 校验点：
 
 - `mode_two` 简介长度严格校验（配置区间，默认 55-80）
+- `mode_four` / `mode_five` 的正文简介也严格校验（配置区间，默认 55-80）
 - `mode_two` 的相邻两部电影简介之间会空 1 行，避免正文连成一整段
+- `mode_four` / `mode_five` 的正文简介块之间也会空 1 行，格式保持 `《电影名》：简介`
 - `mode_one` 发散段严格校验（配置区间，默认 250-600；超出区间会重写）
+- `mode_four` 的正文简介会强制写成脱离主题/标题语境的纯电影简介，接近豆瓣式剧情介绍
+- `mode_five` 会保留 `mode_one` 的发散段，并在其后追加与 `mode_four` 同规则的纯电影简介块
 - `movies_content` 对齐时，先做原片名精确匹配；若 AI 返回名仅存在空格差异（如 `飞驰人生2` / `飞驰人生 2`），会走标准化后的保守精确匹配
 - 不再使用“片名互相包含就复用文案”的兜底规则，避免系列片（如 `飞驰人生` / `飞驰人生2` / `飞驰人生3`）误用同一条金句或简介
 - 若 AI 返回的电影名无法安全对齐，对应电影会回退到默认文案兜底，而不是错误复用其他电影内容
@@ -577,12 +583,12 @@ class Strategy:
         SHOW_GENRE = False
         SHOW_REGION = False
 
-        COLLECTION_BODY_MODE = "mode_one"  # mode_one / mode_two / mode_three
+        COLLECTION_BODY_MODE = "mode_one"  # mode_one / mode_two / mode_three / mode_four / mode_five
         COLLECTION_SHOW_CTA = True
         COLLECTION_CTA_TEXT = "..."
-        COLLECTION_SUMMARY_MIN_LEN = 55
-        COLLECTION_SUMMARY_MAX_LEN = 80
-        COLLECTION_SUMMARY_REWRITE_RETRIES = 3
+        COLLECTION_SUMMARY_MIN_LEN = 55  # mode_two / mode_four / mode_five 共用
+        COLLECTION_SUMMARY_MAX_LEN = 80  # mode_two / mode_four / mode_five 共用
+        COLLECTION_SUMMARY_REWRITE_RETRIES = 3  # mode_two / mode_four / mode_five 共用
         COLLECTION_DIVERGENT_MIN_LEN = 250
         COLLECTION_DIVERGENT_MAX_LEN = 600
 ```
@@ -666,7 +672,7 @@ class Strategy:
 
 建议继续外置（优先级从高到低）：
 - `agents/writer.py`：`AESTHETICS_PROTOCOL`、主生成 Prompt、标题重写 Prompt
-- `agents/collection_writer.py`：`MAGAZINE_AESTHETICS_PROTOCOL`、`mode_one/two/three` 大模板
+- `agents/collection_writer.py`：`MAGAZINE_AESTHETICS_PROTOCOL`、`mode_one/two/three/four/five` 大模板
 - `agents/preview_meta.py` 与 `agents/preview_writer.py`：hook 生成大模板（两端保持同口径）
 - `agents/preview_meta.py`：Serper 抽取 Prompt、Gemini Grounding Prompt
 

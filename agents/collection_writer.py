@@ -234,11 +234,14 @@ class CollectionWriterAgent:
         if intro_text:
             sections.append(intro_text)
 
-        if body_mode == "mode_one":
+        # mode_five = mode_one 的发散段 + mode_four 的纯剧情简介块。
+        if body_mode in {"mode_one", "mode_five"}:
             if divergent_text:
                 sections.append(divergent_text)
-        elif body_mode == "mode_two":
-            summaries_block = self._build_mode_two_summaries(theme, title, movies)
+
+        if body_mode in {"mode_two", "mode_four", "mode_five"}:
+            # mode_four 只替换每部电影的正文简介写法，正文骨架与 mode_two 保持一致。
+            summaries_block = self._build_mode_two_summaries(theme, title, movies, body_mode)
             if summaries_block is None:
                 return None
             if summaries_block:
@@ -321,6 +324,93 @@ class CollectionWriterAgent:
         }}
         """
 
+        if body_mode == "mode_four":
+            return f"""
+        {common_header}
+
+        【任务 1：撰写过渡语 (intro)】
+        注意：这段文字将展示在本期【{movie_count}部电影片单】的正下方，下文紧接着会逐一拆解这些电影。
+        请写一两句话对上方的片单进行总结，并顺畅地引出下文。不要使用“今天为你推荐”等开头式的语调，请直接承接片单。
+
+        【任务 2：主题发散 (divergent_text)】
+        本模式不需要发散介绍，请直接返回空字符串 ""。
+
+        【任务 3：拆解每部电影素材 (movies_content) 🚨核心任务】
+        请为每部电影提供以下 3 个字段：
+        1. 经典台词 (quote)：一句最经典的台词（必须是高质量中文翻译，严禁夹杂英文）。
+        2. 海报简介 (short_summary)：极度精炼的主旨，必须控制在 25 字以内（专用于海报排版）。
+        3. 正文长评 (long_summary)：脱离专题语境也能独立成立的纯电影简介，只介绍电影本身的剧情、人物、设定与主要冲突。
+
+        【mode_four 专属红线】：
+        1. long_summary 只能介绍电影本身，不要借题发挥，不要写评论，不要写推荐语。
+        2. 严禁提及本期主题“{theme}”或合集标题“{title}”带来的专题语境。
+        3. 严禁写奖项、榜单、奥斯卡、提名、获奖、影史地位、行业意义、里程碑、艺术价值判断。
+        4. 允许写故事背景、主角目标、关键遭遇、主要矛盾，但不要剧透结局。
+        5. 语气必须客观、中性、介绍性，接近豆瓣式剧情简介。
+        6. 【⚠️字数极度严格】：long_summary 的字数必须严格控制在 {min_len}-{max_len} 字之间！如果不达标或超标，系统将判定失败！
+
+        【输出格式要求】：
+        必须严格输出以下 JSON 格式，不要包含任何额外解释或代码块标记：
+        {{
+            "intro": "过渡语...",
+            "divergent_text": "",
+            "movies_content": [
+                {{
+                    "name": "电影名",
+                    "quote": "经典台词...",
+                    "short_summary": "25字以内的海报简介...",
+                    "long_summary": "{min_len}-{max_len}字的纯电影剧情简介..."
+                }}
+            ]
+        }}
+        """
+
+        if body_mode == "mode_five":
+            return f"""
+        {common_header}
+
+        【任务 1：撰写过渡语 (intro)】
+        注意：这段文字将展示在本期【{movie_count}部电影片单】的正下方，下文会先承接主题发散，再逐一补充每部电影的纯剧情简介。
+        请写一两句话对上方的片单进行总结，并顺畅地引出下文。不要使用“今天为你推荐”、“接下来”等开头式的语调，请直接承接片单。
+
+        【任务 2：撰写主题发散介绍 (divergent_text)】
+        请围绕主题“{theme}”，撰写一段极具深度的专栏评述。
+        写作要求：
+        1. 切入点：不要空洞说教，必须从本期这 {movie_count} 部电影的共性中提取独特洞察。
+        2. 行文逻辑：先用一句犀利的论断重新定义该主题，然后具体描述这类电影带给观众的真实心理/生理反应，最后落脚于“为什么我们今天依然需要这类电影”。
+        3. 语感红线：句子短促有力，多用名词和动词。严禁出现“不仅仅是...更是”、“视觉盛宴”、“淋漓尽致”等烂俗套话。
+        4. 字数要求：严格控制在 {divergent_min_len}-{divergent_max_len} 字之间。
+
+        【任务 3：拆解每部电影素材 (movies_content) 🚨核心任务】
+        请为每部电影提供以下 3 个字段：
+        1. 经典台词 (quote)：一句最经典的台词（必须是高质量中文翻译，严禁夹杂英文）。
+        2. 海报简介 (short_summary)：极度精炼的主旨，必须控制在 25 字以内（专用于海报排版）。
+        3. 正文长评 (long_summary)：脱离专题语境也能独立成立的纯电影简介，只介绍电影本身的剧情、人物、设定与主要冲突。
+
+        【mode_five 专属红线】：
+        1. divergent_text 继续服务于主题表达，但 long_summary 只能介绍电影本身，不能重复发散段的主题评价。
+        2. long_summary 严禁提及本期主题“{theme}”或合集标题“{title}”带来的专题语境。
+        3. long_summary 严禁写奖项、榜单、奥斯卡、提名、获奖、影史地位、行业意义、里程碑、艺术价值判断。
+        4. 允许写故事背景、主角目标、关键遭遇、主要矛盾，但不要剧透结局。
+        5. long_summary 语气必须客观、中性、介绍性，接近豆瓣式剧情简介。
+        6. 【⚠️字数极度严格】：long_summary 的字数必须严格控制在 {min_len}-{max_len} 字之间！如果不达标或超标，系统将判定失败！
+
+        【输出格式要求】：
+        必须严格输出以下 JSON 格式，不要包含任何额外解释或代码块标记：
+        {{
+            "intro": "过渡语...",
+            "divergent_text": "主题发散介绍...",
+            "movies_content": [
+                {{
+                    "name": "电影名",
+                    "quote": "经典台词...",
+                    "short_summary": "25字以内的海报简介...",
+                    "long_summary": "{min_len}-{max_len}字的纯电影剧情简介..."
+                }}
+            ]
+        }}
+        """
+
         if body_mode == "mode_three":
             return f"""
         {common_header}
@@ -395,15 +485,21 @@ class CollectionWriterAgent:
         若配置值非法，回退到 mode_one，避免主流程崩溃。
         """
         raw_mode = str(getattr(config.Strategy.Writer, 'COLLECTION_BODY_MODE', 'mode_one')).strip()
-        valid_modes = {"mode_one", "mode_two", "mode_three"}
+        valid_modes = {"mode_one", "mode_two", "mode_three", "mode_four", "mode_five"}
         if raw_mode in valid_modes:
             return raw_mode
         print(f"   ⚠️ [Collection] 未知正文模式 '{raw_mode}'，已回退为 mode_one。")
         return "mode_one"
 
-    def _build_mode_two_summaries(self, theme: str, title: str, movies: list) -> str | None:
+    def _build_mode_two_summaries(
+        self,
+        theme: str,
+        title: str,
+        movies: list,
+        body_mode: str = "mode_two",
+    ) -> str | None:
         """
-        组装 mode_two 的正文简介块:
+        组装 mode_two / mode_four / mode_five 的正文简介块:
         《电影名》：简介
 
         规则:
@@ -420,7 +516,17 @@ class CollectionWriterAgent:
             movie_name = movie['name']
             current_summary = str(movie.get('body_summary', '')).strip()
 
-            if not self._is_summary_length_valid(current_summary, min_len, max_len):
+            is_valid, reasons = self._validate_mode_summary(
+                current_summary,
+                min_len,
+                max_len,
+                body_mode,
+                theme,
+                title,
+            )
+            if not is_valid:
+                reason_text = "；".join(reasons) if reasons else "不满足当前模式要求"
+                print(f"      ⚠️ [{body_mode}] 《{movie_name}》简介需重写: {reason_text}")
                 rewritten = self._rewrite_single_mode_two_summary(
                     movie_name=movie_name,
                     theme=theme,
@@ -428,17 +534,18 @@ class CollectionWriterAgent:
                     draft=current_summary,
                     min_len=min_len,
                     max_len=max_len,
-                    max_retries=max_retries
+                    max_retries=max_retries,
+                    body_mode=body_mode,
                 )
                 if rewritten is None:
-                    print(f"   ❌ [mode_two] 《{movie_name}》简介在 {max_retries} 次重写后仍不达标，流程中止。")
+                    print(f"   ❌ [{body_mode}] 《{movie_name}》简介在 {max_retries} 次重写后仍不达标，流程中止。")
                     return None
                 current_summary = rewritten
 
             movie['body_summary'] = current_summary
             lines.append(f"《{movie_name}》：{current_summary}")
 
-        # mode_two 的电影简介块之间空一行，避免多部简介连成一整段。
+        # mode_two / mode_four / mode_five 的电影简介块之间空一行，避免多部简介连成一整段。
         return "\n\n".join(lines)
 
     def _rewrite_single_mode_two_summary(
@@ -449,16 +556,32 @@ class CollectionWriterAgent:
         draft: str,
         min_len: int,
         max_len: int,
-        max_retries: int
+        max_retries: int,
+        body_mode: str = "mode_two",
     ) -> str | None:
         """对单条不合格简介进行有限次重写，返回首个达标结果。"""
         for attempt in range(max_retries):
             if attempt == 0:
-                print(f"      🔄 [mode_two] 《{movie_name}》简介不合格，开始定向重写...")
+                print(f"      🔄 [{body_mode}] 《{movie_name}》简介不合格，开始定向重写...")
             else:
-                print(f"      🔄 [mode_two] 《{movie_name}》继续重写 ({attempt + 1}/{max_retries})...")
+                print(f"      🔄 [{body_mode}] 《{movie_name}》继续重写 ({attempt + 1}/{max_retries})...")
 
-            prompt = f"""
+            if body_mode in {"mode_four", "mode_five"}:
+                # mode_four / mode_five 的重写明确要求“去专题化”，避免把主题/标题重新写回正文简介。
+                prompt = f"""
+            请为电影《{movie_name}》写一段用于合集正文的中文简介。
+            参考草稿：{draft if draft else "（无）"}
+
+            规则：
+            1. 严格输出 {min_len}-{max_len} 字（按字符计数，含标点）。
+            2. 只写简介正文，不要带片名，不要加引号，不要换行，不要序号。
+            3. 只介绍电影本身的剧情、人物、设定与主要冲突，不要剧透结局。
+            4. 严禁提及主题“{theme}”或标题“{title}”带来的专题语境。
+            5. 严禁写奥斯卡、奖项、榜单、提名、获奖、影史地位、里程碑、行业意义、艺术价值判断。
+            6. 文风客观、中性、介绍性，接近豆瓣剧情简介，避免评论腔和推荐腔。
+            """
+            else:
+                prompt = f"""
             请为电影《{movie_name}》写一段用于合集正文的中文简介。
             背景主题：{theme}
             合集标题：{title}
@@ -475,8 +598,16 @@ class CollectionWriterAgent:
 
             candidate = resp.strip().replace("\n", "")
             candidate = candidate.strip('"').strip("“").strip("”").strip()
-            if self._is_summary_length_valid(candidate, min_len, max_len):
-                print(f"      ✅ [mode_two] 《{movie_name}》简介重写达标 ({len(candidate)} 字)。")
+            is_valid, _ = self._validate_mode_summary(
+                candidate,
+                min_len,
+                max_len,
+                body_mode,
+                theme,
+                title,
+            )
+            if is_valid:
+                print(f"      ✅ [{body_mode}] 《{movie_name}》简介重写达标 ({len(candidate)} 字)。")
                 return candidate
 
         return None
@@ -486,6 +617,50 @@ class CollectionWriterAgent:
         if not text:
             return False
         return min_len <= len(text) <= max_len
+
+    def _validate_mode_summary(
+        self,
+        text: str,
+        min_len: int,
+        max_len: int,
+        body_mode: str,
+        theme: str,
+        title: str,
+    ) -> tuple[bool, list[str]]:
+        """
+        按正文模式校验简介：
+        - mode_two: 仅校验长度
+        - mode_four / mode_five: 在长度基础上，再拦截“专题化/奖项化/评论化”的污染
+        """
+        reasons = []
+        if not self._is_summary_length_valid(text, min_len, max_len):
+            reasons.append(f"长度不合规（要求 {min_len}-{max_len} 字）")
+
+        if body_mode not in {"mode_four", "mode_five"}:
+            return len(reasons) == 0, reasons
+
+        clean_text = str(text or "").strip()
+        forbidden_terms = [
+            "奥斯卡",
+            "提名",
+            "获奖",
+            "奖项",
+            "榜单",
+            "影史",
+            "里程碑",
+            "行业意义",
+            "艺术价值",
+            "重新定义",
+        ]
+
+        if theme and theme in clean_text:
+            reasons.append("混入主题语境")
+        if title and title in clean_text:
+            reasons.append("混入标题语境")
+        if any(term in clean_text for term in forbidden_terms):
+            reasons.append("混入奖项/榜单/评价语境")
+
+        return len(reasons) == 0, reasons
     
     # ==========================================
     # [重构 板块7] 从 main.py run_collection_mode() 迁入

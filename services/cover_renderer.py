@@ -29,7 +29,7 @@ class CoverRenderer:
                 # - focus_x 更小 => 更偏左裁；更大 => 更偏右裁
                 # 说明：preview / collection 各自独立，后续只需在这里调数值即可。
                 "preview": {"focus_x": 0.5, "focus_y": 0.5},
-                "collection": {"focus_x": 0.5, "focus_y": 0.45},
+                "collection": {"focus_x": 0.48, "focus_y": 0.5},
             },
             "watermark": {
                 "font_path": config.FONT_SCORE_PATH,  # 水印字体（中文/英文共用）
@@ -47,8 +47,8 @@ class CoverRenderer:
                 "min_item_gap": 24,  # 相邻电影条目的最小边缘间距
             },
             "title": {
-                "start_x": 480,  # 三行主标题基准 X（第一行从这里开始）
-                "start_y": 1400,  # 三行主标题基准 Y（第一行从这里开始）
+                "start_x": 600,  # 三行主标题基准 X（第一行从这里开始）
+                "start_y": 1300,  # 三行主标题基准 Y（第一行从这里开始）
                 "line_spacing": 20,  # 行间距（每行绘制后的额外间隔）
                 "styles": [
                     # offset_x/offset_y 都是“相对偏移”：
@@ -56,9 +56,9 @@ class CoverRenderer:
                     # - offset_y: 在当前行默认 y 基础上上下微调（+ 下移，- 上移）
 
                     # 第 1 行样式（主视觉）
-                    {"font_path": config.FONT_TITLE_PATH, "size": 120, "offset_x": -130, "offset_y": 20}, 
+                    {"font_path": config.FONT_TITLE_PATH, "size": 110, "offset_x": 0, "offset_y": 0}, 
                     # 第 2 行样式
-                    {"font_path": config.FONT_TITLE_PATH, "size": 120, "offset_x": 0, "offset_y": 0},  
+                    {"font_path": config.FONT_TITLE_PATH, "size": 110, "offset_x": 330, "offset_y": 0},  
                     # 第 3 行样式（可空，空行仅占位）
                     {"font_path": config.FONT_TITLE_PATH, "size": 120, "offset_x": 0, "offset_y": 0},  
                 ],

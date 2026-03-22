@@ -21,7 +21,7 @@ class Strategy:
         # LLM 提供方选择:
         # - "deepseek": 使用当前 DeepSeek-Reasoner 调用链路
         # - "qwen": 使用 DashScope Qwen 文本模型，并默认开启强制联网搜索
-        LLM_PROVIDER: str = "qwen"
+        LLM_PROVIDER: str = "deepseek"
 
         # [新增] 发布前决策菜单总开关
         # True: 启用发布前菜单（single=4选项，collection/preview=3选项）
@@ -37,7 +37,7 @@ class Strategy:
         # ================= single 模式文案策略 =================
         # 标题重写最大重试次数
         # 若 AI 写的标题连续 N 次超过 20 字，将强制熔断，不再重试。
-        MAX_TITLE_RETRIES: int = 3
+        MAX_TITLE_RETRIES: int = 10
 
         # [新增] 票房展示双重门槛 (单位: 人民币)
         # 门槛 A: 入场券 (5亿)。
@@ -71,13 +71,15 @@ class Strategy:
         # mode_one: 片单 + 开场白 + 发散 + 引导语 + 进度
         # mode_two: 片单 + 开场白 + 简介列表 + 引导语 + 进度
         # mode_three: 片单 + 开场白 + 引导语 + 进度
+        # mode_four: 片单 + 开场白 + 纯剧情简介列表 + 引导语 + 进度
+        # mode_five: 片单 + 开场白 + 发散 + 纯剧情简介列表 + 引导语 + 进度
         COLLECTION_BODY_MODE: str = "mode_one"
 
         # [新增] 合集模式正文引导语控制 (仅 collection 模式使用)
         COLLECTION_SHOW_CTA: bool = True
         COLLECTION_CTA_TEXT: str = "欢迎在评论区补充你喜欢的电影～"
 
-        # [新增] mode_two 的电影简介长度与重写控制 (仅 collection 模式使用)
+        # [新增] mode_two / mode_four / mode_five 的电影简介长度与重写控制 (仅 collection 模式使用)
         COLLECTION_SUMMARY_MIN_LEN: int = 55
         COLLECTION_SUMMARY_MAX_LEN: int = 80
         COLLECTION_SUMMARY_REWRITE_RETRIES: int = 10
@@ -133,7 +135,7 @@ class Strategy:
         # [新增] 合集渲染比例开关
         # False: 保持原逻辑（单图 16:9，3图拼接后为 16:27）
         # True: 单图改为 9:4，3图拼接后为 3:4（更贴近小红书封面显示比例）
-        COLLECTION_USE_9_4_RENDER: bool = True
+        COLLECTION_USE_9_4_RENDER: bool = False
 
         # [新增] collection 封面水印开关
         # True: 在合集封面上绘制电影名水印
