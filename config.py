@@ -15,11 +15,11 @@ class Strategy:
 
     class System:
         """[v4.0 新增] 系统运行模式与全局配置"""
-        # 运行模式选择: "single" (单片模式) / "collection" (合集盘点模式) / "preview" (新片速递模式)
+        # 运行模式选择: "single" (单片模式) / "collection" (合集盘点模式) / "preview" (新片速递模式) / "proxy" (代理发布模式)
         RUN_MODE: str = "collection"
 
         # LLM 提供方选择:
-        # - "deepseek": 使用当前 DeepSeek-Reasoner 调用链路
+        # - "deepseek": 使用 DeepSeek V4 OpenAI 兼容调用链路
         # - "qwen": 使用 DashScope Qwen 文本模型，并默认开启强制联网搜索
         LLM_PROVIDER: str = "deepseek"
 
@@ -271,6 +271,18 @@ class Strategy:
         # 仅保留最近 N 次 preview 任务缓存；每次任务内部按“单部电影完整完成”写入。
         PREVIEW_CACHE_MAX_TASKS: int = 5
 
+    class Proxy:
+        """代理发布模式配置：读取现成素材和 note.md，自动生成 tags 后发布。"""
+
+        # tags 生成最大重试次数；每次都通过 LLMBrain 走当前全局 LLM_PROVIDER。
+        TAG_GENERATION_RETRIES: int = 2
+
+        # 小红书 tags 数量上限；超过会截断，避免正文 + tags 触碰 990 硬线。
+        MAX_TAGS: int = 8
+
+        # 单个 tag 的最大字符数；过长 tag 会影响展示与总长度预算。
+        MAX_TAG_LEN: int = 12
+
 
 # ================= 路径配置 (定海神针) =================
 # 获取当前文件(config.py)所在的目录，即项目根目录
@@ -294,6 +306,12 @@ PREVIEW_DIR = os.path.join(BASE_DIR, "资料", "previews")
 PREVIEW_LANDSCAPE_DIR = os.path.join(PREVIEW_DIR, "landscape")
 PREVIEW_POSTER_DIR = os.path.join(PREVIEW_DIR, "poster")
 PREVIEW_DONE_DIR = os.path.join(PREVIEW_DIR, "_done")
+
+# [新增] 代理发布模式相关路径
+# PROXY_DIR: 代理任务根目录
+# PROXY_DONE_DIR: 发布成功后的归档目录
+PROXY_DIR = os.path.join(BASE_DIR, "资料", "proxy")
+PROXY_DONE_DIR = os.path.join(PROXY_DIR, "_done")
 
 # [修改] 独立 score 文件夹，存放本地分数
 SCORE_DIR = os.path.join(BASE_DIR, "资料", "score")
@@ -337,6 +355,8 @@ for _dir in [
     PREVIEW_DONE_DIR,
     os.path.join(PREVIEW_DONE_DIR, "landscape"),
     os.path.join(PREVIEW_DONE_DIR, "poster"),
+    PROXY_DIR,
+    PROXY_DONE_DIR,
     SCORE_DIR,
     CACHE_DIR,
 ]:
@@ -356,6 +376,9 @@ if not os.path.exists(LOCAL_SCORES_FILE):
 # DeepSeek（当 LLM_PROVIDER="deepseek" 时使用）
 LLM_API_KEY = os.getenv("LLM_API_KEY")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepseek.com")
+LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-pro")
+LLM_THINKING_TYPE = os.getenv("LLM_THINKING_TYPE", "enabled")
+LLM_REASONING_EFFORT = os.getenv("LLM_REASONING_EFFORT", "high")
 
 # Qwen / DashScope（当 LLM_PROVIDER="qwen" 时使用）
 QWEN_API_KEY = os.getenv("QWEN_API_KEY")

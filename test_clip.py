@@ -4,12 +4,13 @@ from transformers import CLIPProcessor, CLIPModel
 import os
 
 # === 配置区域 ===
-# ⚠️ 请确保这里是你真实的图片路径
+# 测试图路径基于脚本所在项目根目录拼接，项目移动后不需要改绝对路径。
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IMAGE_PATHS = [
-    "/Users/lihouyan/Documents/codes/little_red/资料/image/美丽人生_still_tmdb_0_1770391886.jpg", 
-    "/Users/lihouyan/Documents/codes/little_red/资料/image/美丽人生_still_tmdb_2_1770391890.jpg", 
-    "/Users/lihouyan/Documents/codes/little_red/资料/image/美丽人生_still_tmdb_3_1770391893.jpg", 
-    "/Users/lihouyan/Documents/codes/little_red/资料/image/美丽人生_still_tmdb_4_1770391895.jpg"  
+    os.path.join(BASE_DIR, "资料", "image", "美丽人生_still_tmdb_0_1770391886.jpg"),
+    os.path.join(BASE_DIR, "资料", "image", "美丽人生_still_tmdb_2_1770391890.jpg"),
+    os.path.join(BASE_DIR, "资料", "image", "美丽人生_still_tmdb_3_1770391893.jpg"),
+    os.path.join(BASE_DIR, "资料", "image", "美丽人生_still_tmdb_4_1770391895.jpg"),
 ]
 # ================
 

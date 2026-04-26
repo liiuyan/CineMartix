@@ -22,6 +22,10 @@ from agents.preview_writer import PreviewWriterAgent
 from agents.preview_visual import PreviewVisualAgent
 from services.preview_cache import PreviewCacheManager
 
+# [v5.1 新增] 代理发布赛道 Agent
+from agents.proxy_topic import ProxyTopicAgent
+from agents.proxy_writer import ProxyWriterAgent
+
 def run_single_mode():
     """
     🚀 小红书全自动运营主程序 (Main Pipeline)
@@ -287,6 +291,46 @@ def run_preview_mode():
     else:
         print("\n❌ 新片速递发布失败，请检查发布服务日志。")
 
+def run_proxy_mode():
+    """
+    🧩 代理发布赛道 (Proxy Track)
+
+    设计原则:
+    1) 只代理发布用户已准备好的图片与文案，不接入电影元数据、历史或渲染链路。
+    2) 仍复用统一 ExecutionAgent，保持发布菜单、定时发布和失败收尾语义一致。
+    3) 发布成功后才归档任务目录，避免失败或放弃发布时误清理素材。
+    """
+    print("\n==========================================")
+    print("   🧩 [代理模式] Proxy Pipeline Start   ")
+    print("==========================================")
+
+    # === Step 1: 扫描代理任务 ===
+    topic_agent = ProxyTopicAgent()
+    topic_data = topic_agent.run()
+    if not topic_data:
+        return
+
+    # === Step 2: 读取 note.md 并生成 tags ===
+    writer_agent = ProxyWriterAgent()
+    note_data = writer_agent.run(topic_data["note_path"])
+    if not note_data:
+        return
+
+    # === Step 3: 统一发布 ===
+    execution_agent = ExecutionAgent()
+    success = execution_agent.run(note_data, topic_data["image_paths"], run_mode="proxy")
+
+    # === Step 4: 成功后归档 ===
+    if success is None:
+        print("\n🚫 已放弃发布，代理任务保持原样。")
+        return
+
+    if success:
+        topic_agent.finish_proxy(topic_data["folder_path"])
+        print("\n🎉 代理模式发布成功，任务目录已归档。")
+    else:
+        print("\n❌ 代理模式发布失败，请检查发布服务日志。")
+
 def main():
     """
     🔀 小红书全自动运营主程序 (v4.0 路由版)
@@ -294,7 +338,10 @@ def main():
     # 读取 config 中的硬开关
     run_mode = getattr(getattr(config.Strategy, 'System', None), 'RUN_MODE', 'single')
 
-    if run_mode == "preview":
+    if run_mode == "proxy":
+        print("🔀 [Router] 检测到 config 设置为【代理模式 (Proxy)】，驶入代理发布赛道...")
+        run_proxy_mode()
+    elif run_mode == "preview":
         print("🔀 [Router] 检测到 config 设置为【新片速递模式 (Preview)】，驶入预告赛道...")
         run_preview_mode()
     elif run_mode == "collection":

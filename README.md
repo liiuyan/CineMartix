@@ -6,11 +6,12 @@
 
 ## 🌟 项目简介
 
-CineMatrix 采用 Agent 分工架构，当前支持三条业务赛道：
+CineMatrix 采用 Agent 分工架构，当前支持四条业务赛道：
 
 - `single`：单片推荐
 - `collection`：合集盘点
 - `preview`：新片速递（含 `landscape/poster` 两个子模式）
+- `proxy`：代理发布（现成素材 + 现成文案 + 自动 tags）
 
 核心能力：
 
@@ -18,6 +19,7 @@ CineMatrix 采用 Agent 分工架构，当前支持三条业务赛道：
 - 元数据：TMDB / OMDB / Serper / Gemini（preview 兜底）
 - 文案：结构化生成 + 长度熔断 + 标签组装
 - 视觉：人工素材优先 / 渲染拼接 / collection 与 preview 封面渲染 / CLIP 去重
+- 代理：读取 `note.md` 与编号图片，直接复用统一发布通道
 - 发布：本地发布服务调用 + 发布前决策菜单（放弃/立即/定时）+ 成功后原子收尾
 
 ---
@@ -28,7 +30,8 @@ CineMatrix 采用 Agent 分工架构，当前支持三条业务赛道：
 main.py
   ├─ run_single_mode()       # 单片模式
   ├─ run_collection_mode()   # 合集模式
-  └─ run_preview_mode()      # 新片速递模式
+  ├─ run_preview_mode()      # 新片速递模式
+  └─ run_proxy_mode()        # 代理发布模式
 
 agents/
   ├─ topic.py                # single 选题
@@ -43,7 +46,9 @@ agents/
   ├─ preview_topic.py        # preview 扫描
   ├─ preview_meta.py         # preview 元数据
   ├─ preview_writer.py       # preview 文案组装
-  └─ preview_visual.py       # preview 视觉处理
+  ├─ preview_visual.py       # preview 视觉处理
+  ├─ proxy_topic.py          # proxy 扫描
+  └─ proxy_writer.py         # proxy 文案与 tags 组装
 
 services/
   ├─ clip_engine.py          # CLIP 单例引擎
@@ -89,6 +94,8 @@ little_red/
     │   └── _done/
     │       ├── landscape/        # preview 横图归档
     │       └── poster/           # preview 竖海报归档
+    ├── proxy/
+    │   └── _done/                # proxy 成功归档
     ├── score/
     │   └── local_scores.json
     ├── cache/
@@ -118,9 +125,12 @@ pip install openai requests python-dotenv pillow torch transformers
 在项目根目录创建或编辑 `.env`：
 
 ```env
-# DeepSeek (当 LLM_PROVIDER="deepseek" 时使用)
+# DeepSeek (当 LLM_PROVIDER="deepseek" 时使用；默认 deepseek-v4-pro)
 LLM_API_KEY=...
 LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-v4-pro
+LLM_THINKING_TYPE=enabled
+LLM_REASONING_EFFORT=high
 
 # Qwen / DashScope (当 LLM_PROVIDER="qwen" 时使用；以下示例为北京部署 + qwen3.5-plus)
 QWEN_API_KEY=...
@@ -141,6 +151,8 @@ GEMINI_MODEL=gemini-2.5-flash
 
 说明：
 
+- DeepSeek 官方当前推荐模型名为 `deepseek-v4-pro` / `deepseek-v4-flash`；旧 `deepseek-chat` 与 `deepseek-reasoner` 将在 `2026-07-24` 废弃。
+- 项目内部对 DeepSeek 使用 OpenAI 兼容客户端调用，默认 `LLM_MODEL=deepseek-v4-pro`，并显式开启 `thinking` 与 `reasoning_effort=high`。
 - `LLM_PROVIDER="qwen"` 时，`LLMBrain` 会默认开启 Qwen 强制联网搜索，用于补足最新事实信息；`Gemini` 的 preview 兜底职责不受影响。
 - 北京部署下使用 `qwen3.5-plus` 时，请走 DashScope `compatible-mode`，不要使用旧的 `.../api/v1/services/aigc/text-generation/generation`；否则可能返回 `400 url error`。
 - 项目内部对 Qwen 使用 OpenAI 兼容客户端调用；`QWEN_BASE_URL` 允许直接填写完整的 `.../compatible-mode/v1/chat/completions` 地址，程序会自动归一化处理。
@@ -155,7 +167,7 @@ GEMINI_MODEL=gemini-2.5-flash
 ```python
 class Strategy:
     class System:
-        RUN_MODE = "single"      # 可选: "single" / "collection" / "preview"
+        RUN_MODE = "single"      # 可选: "single" / "collection" / "preview" / "proxy"
 ```
 
 启动：
@@ -273,10 +285,11 @@ python3 main.py
 - 余数单图独立输出
 - 当 `DETAIL_IMAGE_TYPE="rendered"` 时，追加的渲染单图比例会跟随上面的开关（16:9 或 9:4）；`original` 原图追加不受影响
 - 若存在封面图（`|0/｜0`），会渲染为 3:4（`1200x1600`）并输出 `output/collection_cover.jpg`
-- 合集封面默认只显示中文电影名水印；当 `Strategy.Visual.COLLECTION_COVER_SHOW_ENGLISH_NAMES=True` 时，才允许显示英文名
+- 合集封面英文名是否显示由 `Strategy.Visual.COLLECTION_COVER_SHOW_ENGLISH_NAMES` 控制；当前默认开启
 - 最终发布序列中，合集封面固定插入第 1 张；后面的长图/单图追加顺序保持原逻辑
 - `Strategy.Visual.COLLECTION_COVER_SHOW_WATERMARK=False` 时，只关闭电影名水印区域，封面三行主标题仍然保留
 - `Strategy.Visual.COLLECTION_COVER_SHOW_ENGLISH_NAMES=False` 时，即使保留水印区域，也只显示中文名
+- 当 `Strategy.Visual.COLLECTION_COVER_SHOW_ENGLISH_NAMES=True` 时，`CollectionMetaFetcher` 会补齐 `original_title / is_china_film`；即使命中 `local_scores.json` 满血缓存，也不会再因为元数据缺失而丢失英文水印
 - collection 封面底图裁剪焦点维护在 `services/cover_renderer.py` 的 `CoverRenderer.cover_config["crop"]["collection"]`
   - 默认 `focus_x=0.5`、`focus_y=0.5`，等价于居中裁剪
   - `focus_y` 更小表示更偏上裁，更大表示更偏下裁
@@ -477,6 +490,7 @@ preview 现在不是“先把所有电影整批查完再统一写文案”，而
 - 中国电影不显示英文名
 - DeepSeek 判定失败会按重试配置重试，超限后回退为“不显示英文名”
 - 当封面水印开关关闭时，本节整块逻辑会被跳过，但封面主标题仍照常渲染
+- collection 命中 `local_scores.json` 满血缓存时，也会补齐封面英文水印所需的 `original_title / is_china_film`，避免缓存路径与非缓存路径行为不一致
 - 水印块内部参数当前维护在 `services/cover_renderer.py` 的 `CoverRenderer.cover_config["watermark"]`：
   - 默认字号 `45`，统一缩字号最小下限 `30`
   - 中文/英文块内部默认行间距 `8`
@@ -495,7 +509,55 @@ preview 现在不是“先把所有电影整批查完再统一写文案”，而
 
 ---
 
-## 四、发布前决策菜单（全模式）
+## 四、代理模式（`RUN_MODE="proxy"`）
+
+代理模式用于发布已经准备好的素材和文案，不接入电影元数据、不渲染图片、不写 `history.json`。
+
+### 1) 输入目录规范
+
+在 `资料/proxy/` 下创建任务文件夹：
+
+```text
+资料/proxy/春日穿搭笔记/
+├── note.md
+├── 1.jpg
+├── 03.jpg
+└── 10.png
+```
+
+`note.md` 协议：
+
+- 第 1 行是标题，不能为空，且必须 `<=20` 字
+- 第 2 行起是正文，保留内部换行，首尾空行会被清理
+- 正文不能为空
+
+图片协议：
+
+- 支持 `.jpg / .jpeg / .png / .webp`
+- 图片文件名主干必须是纯阿拉伯数字，例如 `1.jpg`、`2.png`、`03.webp`
+- 允许缺号和前导零，发布顺序按数字值升序排列
+- 必须包含编号 `1`，编号 `1` 作为封面
+- `0.jpg`、`abc.jpg`、`1.jpg + 01.png` 这类重复数字编号都会直接熔断，不发布
+- 非图片文件除 `note.md` 外会被忽略；隐藏文件和子目录会被忽略
+
+### 2) 文案与 tags
+
+- 程序读取 `note.md` 组装 `title / content`
+- tags 由当前全局 `LLM_PROVIDER` 对应模型根据标题和正文自动生成
+- tags 生成失败时，会用标题和正文关键词做本地兜底
+- 不强行加入 `电影推荐` 等固定领域标签
+- 校验硬线保持一致：标题 `<=20`，`正文 + tags <= 990`
+
+### 3) 发布与归档
+
+- 一次运行只处理 `资料/proxy/` 下按目录名排序的第一个任务文件夹
+- 发布前菜单复用 collection / preview 的 3 选项：放弃 / 立即发布 / 定时发布
+- 发布成功后整夹归档到 `资料/proxy/_done/`
+- 放弃发布或发布失败时，任务目录保持原样
+
+---
+
+## 五、发布前决策菜单（全模式）
 
 由 `Strategy.System.ENABLE_PUBLISH_DECISION_MENU` 控制：
 
@@ -509,7 +571,7 @@ preview 现在不是“先把所有电影整批查完再统一写文案”，而
   2) 修改标题后发布  
   3) 立即发布  
   4) 定时发布
-- `collection` / `preview`：3 选项
+- `collection` / `preview` / `proxy`：3 选项
   1) 放弃发布  
   2) 立即发布  
   3) 定时发布
@@ -556,9 +618,18 @@ preview 现在不是“先把所有电影整批查完再统一写文案”，而
 class Strategy:
     class System:
         LLM_PROVIDER = "deepseek"    # 可选: "deepseek" / "qwen"
-        RUN_MODE = "single"          # single / collection / preview
+        RUN_MODE = "single"          # single / collection / preview / proxy
         ENABLE_PUBLISH_DECISION_MENU = True  # 发布前菜单总开关
         USE_LOCAL_SCORES = True       # 仅合集模式有效
+```
+
+DeepSeek 相关环境变量：
+
+```env
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-v4-pro
+LLM_THINKING_TYPE=enabled
+LLM_REASONING_EFFORT=high
 ```
 
 ### 2) 通用视觉/文案（single + collection）
@@ -573,7 +644,7 @@ class Strategy:
         DETAIL_IMAGE_TYPE = "original"   # original / rendered
         COLLECTION_USE_9_4_RENDER = True   # False: 16:9→16:27, True: 9:4→3:4
         COLLECTION_COVER_SHOW_WATERMARK = True
-        COLLECTION_COVER_SHOW_ENGLISH_NAMES = False
+        COLLECTION_COVER_SHOW_ENGLISH_NAMES = True
 
     class Writer:
         ENABLE_TITLE_EMOJI = True
@@ -640,9 +711,19 @@ class Strategy:
         PREVIEW_CACHE_MAX_TASKS = 5
 ```
 
-### 4) config 结构说明（本轮同步）
+### 4) proxy 专属配置
 
-- `config.py` 已按职责分为 `System / Writer / Visual / Preview` 四组，便于按赛道调参
+```python
+class Strategy:
+    class Proxy:
+        TAG_GENERATION_RETRIES = 2  # tags 生成重试次数
+        MAX_TAGS = 8                # 最多保留 tags 数
+        MAX_TAG_LEN = 12            # 单个 tag 最大字符数
+```
+
+### 5) config 结构说明（本轮同步）
+
+- `config.py` 已按职责分为 `System / Writer / Visual / Preview / Proxy` 五组，便于按赛道调参
 - 配置字段名与默认值保持兼容（无需改动现有业务代码调用）
 - 本轮新增两个比例开关：`COLLECTION_USE_9_4_RENDER`、`LANDSCAPE_USE_9_4_RENDER`
 - preview / collection 封面标题、水印与裁剪焦点参数当前未上提到 `config.py`，而是维护在 `services/cover_renderer.py` 的 `CoverRenderer.cover_config` 中，便于开发时直接微调

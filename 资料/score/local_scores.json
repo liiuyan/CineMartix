@@ -643,5 +643,227 @@
     "rotten_tomatoes": "92%",
     "metacritic": "83",
     "douban": "6.7"
+  },
+  "无间道": {
+    "imdb": "8.0",
+    "rotten_tomatoes": "94%",
+    "metacritic": "75",
+    "douban": "9.3"
+  },
+  "无间道2": {
+    "imdb": "7.2",
+    "rotten_tomatoes": "75%",
+    "metacritic": "N/A",
+    "douban": "8.8"
+  },
+  "无间道3：终极无间": {
+    "imdb": "6.8",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "8.2"
+  },
+  "挽救计划": {
+    "imdb": "N/A",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "8.5"
+  },
+  "彗星来的那一夜": {
+    "imdb": "7.2",
+    "rotten_tomatoes": "89%",
+    "metacritic": "65",
+    "douban": "8.5"
+  },
+  "教父2": {
+    "imdb": "9.0",
+    "rotten_tomatoes": "96%",
+    "metacritic": "90",
+    "douban": "9.3"
+  },
+  "教父3": {
+    "imdb": "7.5",
+    "rotten_tomatoes": "66%",
+    "metacritic": "60",
+    "douban": "N/A"
+  },
+  "小森林：冬春篇": {
+    "imdb": "7.6",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "N/A"
+  },
+  "秘密花园": {
+    "imdb": "7.3",
+    "rotten_tomatoes": "89%",
+    "metacritic": "74",
+    "douban": "8.5"
+  },
+  "春天的故事": {
+    "imdb": "7.1",
+    "rotten_tomatoes": "88%",
+    "metacritic": "N/A",
+    "douban": "8.4"
+  },
+  "绿山墙安妮": {
+    "imdb": "6.4",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "6.9"
+  },
+  "横道世之介": {
+    "imdb": "7.5",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "8.8"
+  },
+  "爱的曝光": {
+    "imdb": "8.0",
+    "rotten_tomatoes": "90%",
+    "metacritic": "78",
+    "douban": "8.3"
+  },
+  "浮生若梦": {
+    "imdb": "7.8",
+    "rotten_tomatoes": "94%",
+    "metacritic": "N/A",
+    "douban": "7.6"
+  },
+  "乱世佳人": {
+    "imdb": "8.2",
+    "rotten_tomatoes": "90%",
+    "metacritic": "97",
+    "douban": "9.3"
+  },
+  "歌舞大王齐格飞": {
+    "imdb": "6.6",
+    "rotten_tomatoes": "72%",
+    "metacritic": "69",
+    "douban": "7.3"
+  },
+  "叛舰喋血记": {
+    "imdb": "7.6",
+    "rotten_tomatoes": "96%",
+    "metacritic": "87",
+    "douban": "7.9"
+  },
+  "一夜风流": {
+    "imdb": "8.1",
+    "rotten_tomatoes": "98%",
+    "metacritic": "87",
+    "douban": "N/A"
+  },
+  "左拉传": {
+    "imdb": "7.1",
+    "rotten_tomatoes": "92%",
+    "metacritic": "N/A",
+    "douban": "7.7"
+  },
+  "蝴蝶梦": {
+    "imdb": "8.1",
+    "rotten_tomatoes": "98%",
+    "metacritic": "86",
+    "douban": "8.3"
+  },
+  "青山翠谷": {
+    "imdb": "7.7",
+    "rotten_tomatoes": "93%",
+    "metacritic": "88",
+    "douban": "8.3"
+  },
+  "卡萨布兰卡": {
+    "imdb": "8.5",
+    "rotten_tomatoes": "99%",
+    "metacritic": "100",
+    "douban": "8.7"
+  },
+  "失去的周末": {
+    "imdb": "7.9",
+    "rotten_tomatoes": "97%",
+    "metacritic": "N/A",
+    "douban": "7.8"
+  },
+  "与我同行": {
+    "imdb": "6.3",
+    "rotten_tomatoes": "81%",
+    "metacritic": "55",
+    "douban": "8.2"
+  },
+  "忠勇之家": {
+    "imdb": "7.6",
+    "rotten_tomatoes": "93%",
+    "metacritic": "77",
+    "douban": "7.5"
+  },
+  "黄金时代": {
+    "imdb": "6.4",
+    "rotten_tomatoes": "60%",
+    "metacritic": "57",
+    "douban": "7.4"
+  },
+  "君子协定": {
+    "imdb": "7.2",
+    "rotten_tomatoes": "82%",
+    "metacritic": "N/A",
+    "douban": "6.9"
+  },
+  "王子复仇记": {
+    "imdb": "7.6",
+    "rotten_tomatoes": "96%",
+    "metacritic": "82",
+    "douban": "8.3"
+  },
+  "当代奸雄": {
+    "imdb": "7.4",
+    "rotten_tomatoes": "97%",
+    "metacritic": "N/A",
+    "douban": "7.3"
+  },
+  "彗星美人": {
+    "imdb": "8.2",
+    "rotten_tomatoes": "99%",
+    "metacritic": "98",
+    "douban": "8.7"
+  },
+  "一个美国人在巴黎": {
+    "imdb": "7.1",
+    "rotten_tomatoes": "95%",
+    "metacritic": "83",
+    "douban": "7.1"
+  },
+  "精武英雄": {
+    "imdb": "7.5",
+    "rotten_tomatoes": "100%",
+    "metacritic": "N/A",
+    "douban": "8.7"
+  },
+  "醉拳2": {
+    "imdb": "7.5",
+    "rotten_tomatoes": "85%",
+    "metacritic": "74",
+    "douban": "8.1"
+  },
+  "新龙门客栈｜1992": {
+    "imdb": "7.2",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "8.7"
+  },
+  "猛龙过江": {
+    "imdb": "7.1",
+    "rotten_tomatoes": "87%",
+    "metacritic": "58",
+    "douban": "8.4"
+  },
+  "少林寺｜1982": {
+    "imdb": "6.8",
+    "rotten_tomatoes": "N/A",
+    "metacritic": "N/A",
+    "douban": "8.4"
+  },
+  "卧虎藏龙": {
+    "imdb": "7.9",
+    "rotten_tomatoes": "98%",
+    "metacritic": "94",
+    "douban": "8.4"
   }
 }

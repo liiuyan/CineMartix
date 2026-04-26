@@ -156,16 +156,26 @@ class LLMBrain:
         return self._think_with_deepseek(prompt, system_prompt)
 
     def _think_with_deepseek(self, prompt, system_prompt):
+        if not config.LLM_API_KEY:
+            print("❌ DeepSeek 调用失败: 缺少 LLM_API_KEY")
+            return None
+
+        if not self.client:
+            print("❌ DeepSeek 调用失败: DeepSeek 客户端初始化失败")
+            return None
+
         try:
-            # [保留] 保持原版体验
-            print("   🧠 DeepSeek-Reasoner 正在深度思考中...")
+            # DeepSeek V4 官方仍走 OpenAI 兼容 chat/completions；模型名集中在 config.py，便于后续升级。
+            print(f"   🧠 DeepSeek ({config.LLM_MODEL}) 正在思考中...")
             response = self.client.chat.completions.create(
-                model="deepseek-reasoner",
+                model=config.LLM_MODEL,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                stream=False
+                stream=False,
+                reasoning_effort=config.LLM_REASONING_EFFORT,
+                extra_body={"thinking": {"type": config.LLM_THINKING_TYPE}},
             )
             return response.choices[0].message.content
         except Exception as e:
