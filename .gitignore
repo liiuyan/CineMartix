@@ -15,8 +15,6 @@ venv/
 
 # Runtime data
 cookies.json
-history.json
-*.json.tmp
 
 # IDE
 .vscode/

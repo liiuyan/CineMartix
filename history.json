@@ -1,0 +1,885 @@
+{
+  "教父": {
+    "first_publish_date": "2026-02-17",
+    "published_modes": [
+      "single",
+      "collection"
+    ]
+  },
+  "穿普拉达的女王": {
+    "first_publish_date": "2026-02-18",
+    "published_modes": [
+      "single"
+    ]
+  },
+  "降临": {
+    "first_publish_date": "2026-02-18",
+    "published_modes": [
+      "single"
+    ]
+  },
+  "看不见的客人": {
+    "first_publish_date": "2026-02-19",
+    "published_modes": [
+      "single"
+    ]
+  },
+  "小森林 夏秋篇": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "single"
+    ]
+  },
+  "泰坦尼克号": {
+    "first_publish_date": "2026-02-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "盗梦空间": {
+    "first_publish_date": "2026-02-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "猫鼠游戏": {
+    "first_publish_date": "2026-02-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "禁闭岛": {
+    "first_publish_date": "2026-02-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "了不起的盖茨比": {
+    "first_publish_date": "2026-02-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "华尔街之狼": {
+    "first_publish_date": "2026-02-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "星际穿越": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "信条": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "蝙蝠侠：侠影之谜": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "蝙蝠侠：黑暗骑士": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "蝙蝠侠：黑暗骑士崛起": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "奥本海默": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "致命魔术": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "记忆碎片": {
+    "first_publish_date": "2026-02-20",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "成为简·奥斯汀": {
+    "first_publish_date": "2026-02-21",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "实习生": {
+    "first_publish_date": "2026-02-21",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "一天": {
+    "first_publish_date": "2026-02-21",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "公主日记1": {
+    "first_publish_date": "2026-02-21",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "公主日记2": {
+    "first_publish_date": "2026-02-21",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "断背山": {
+    "first_publish_date": "2026-02-21",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "海蒂和爷爷": {
+    "first_publish_date": "2026-02-21",
+    "published_modes": [
+      "single"
+    ]
+  },
+  "正发生": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "巴黎夜旅人": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "法比安": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "晒后假日": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "唐顿庄园2": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "天鹅挽歌": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "十三条命": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "close": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "万湖会议": {
+    "first_publish_date": "2026-02-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "四月物语": {
+    "first_publish_date": "2026-02-23",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "情书": {
+    "first_publish_date": "2026-02-23",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "花与爱丽丝": {
+    "first_publish_date": "2026-02-23",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "天堂电影院": {
+    "first_publish_date": "2026-02-25",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "海上钢琴师": {
+    "first_publish_date": "2026-02-25",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "西西里的美丽传说": {
+    "first_publish_date": "2026-02-25",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "隐秘": {
+    "first_publish_date": "2026-02-25",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "天伦之旅": {
+    "first_publish_date": "2026-02-25",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "最佳出价": {
+    "first_publish_date": "2026-02-25",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "爱在黎明破晓前": {
+    "first_publish_date": "2026-02-27",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "爱在日落黄昏时": {
+    "first_publish_date": "2026-02-27",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "爱在午夜降临前": {
+    "first_publish_date": "2026-02-27",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "白日梦想家": {
+    "first_publish_date": "2026-02-28",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "幸福终点站": {
+    "first_publish_date": "2026-02-28",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "心灵捕手": {
+    "first_publish_date": "2026-02-28",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "肖申克的救赎": {
+    "first_publish_date": "2026-02-28",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "阿甘正传": {
+    "first_publish_date": "2026-02-28",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "放牛班的春天": {
+    "first_publish_date": "2026-02-28",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "无耻混蛋": {
+    "first_publish_date": "2026-02-28",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "搏击俱乐部": {
+    "first_publish_date": "2026-02-28",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "燃情岁月": {
+    "first_publish_date": "2026-02-28",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "怪物": {
+    "first_publish_date": "2026-03-03",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "海街日记": {
+    "first_publish_date": "2026-03-03",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "小偷家族": {
+    "first_publish_date": "2026-03-03",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "幻之光": {
+    "first_publish_date": "2026-03-03",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "如父如子": {
+    "first_publish_date": "2026-03-03",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "步履不停": {
+    "first_publish_date": "2026-03-03",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "无人知晓": {
+    "first_publish_date": "2026-03-03",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "比海更深": {
+    "first_publish_date": "2026-03-03",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "下一站，天国": {
+    "first_publish_date": "2026-03-03",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "蓝白红三部曲之蓝": {
+    "first_publish_date": "2026-03-04",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "蓝白红三部曲之白": {
+    "first_publish_date": "2026-03-04",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "蓝白红三部曲之红": {
+    "first_publish_date": "2026-03-04",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "谍影重重": {
+    "first_publish_date": "2026-03-05",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "谍影重重2": {
+    "first_publish_date": "2026-03-05",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "谍影重重3": {
+    "first_publish_date": "2026-03-05",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "飞驰人生": {
+    "first_publish_date": "2026-03-06",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "飞驰人生2": {
+    "first_publish_date": "2026-03-06",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "飞驰人生3": {
+    "first_publish_date": "2026-03-06",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "怪物史瑞克": {
+    "first_publish_date": "2026-03-07",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "千与千寻": {
+    "first_publish_date": "2026-03-07",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "海底总动员": {
+    "first_publish_date": "2026-03-07",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "超人总动员": {
+    "first_publish_date": "2026-03-07",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "超级无敌掌门狗：人兔的诅咒": {
+    "first_publish_date": "2026-03-07",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "快乐的大脚": {
+    "first_publish_date": "2026-03-07",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "机械师": {
+    "first_publish_date": "2026-03-08",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "重见天日": {
+    "first_publish_date": "2026-03-08",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "斗士": {
+    "first_publish_date": "2026-03-08",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "美国骗局": {
+    "first_publish_date": "2026-03-08",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "副总统": {
+    "first_publish_date": "2026-03-08",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "非穷尽列举": {
+    "first_publish_date": "2026-03-09",
+    "published_modes": [
+      "single"
+    ]
+  },
+  "十一罗汉": {
+    "first_publish_date": "2026-03-10",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "十二罗汉": {
+    "first_publish_date": "2026-03-10",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "十三罗汉": {
+    "first_publish_date": "2026-03-10",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "龙猫": {
+    "first_publish_date": "2026-03-13",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "哈尔的移动城堡": {
+    "first_publish_date": "2026-03-13",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "幽灵公主": {
+    "first_publish_date": "2026-03-13",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "侧耳倾听": {
+    "first_publish_date": "2026-03-13",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "借东西的小人阿莉埃蒂": {
+    "first_publish_date": "2026-03-13",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "起风了": {
+    "first_publish_date": "2026-03-13",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "惊天魔盗团": {
+    "first_publish_date": "2026-03-14",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "惊天魔盗团2": {
+    "first_publish_date": "2026-03-14",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "惊天魔盗团3": {
+    "first_publish_date": "2026-03-14",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "只是爱着你": {
+    "first_publish_date": "2026-03-15",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "花束般的恋爱": {
+    "first_publish_date": "2026-03-15",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "借着雨点说爱你": {
+    "first_publish_date": "2026-03-15",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "翼": {
+    "first_publish_date": "2026-03-18",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "百老汇旋律": {
+    "first_publish_date": "2026-03-18",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "西线无战事": {
+    "first_publish_date": "2026-03-18",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "壮志千秋": {
+    "first_publish_date": "2026-03-18",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "大饭店": {
+    "first_publish_date": "2026-03-18",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "乱世春秋": {
+    "first_publish_date": "2026-03-18",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "魔鬼银爪": {
+    "first_publish_date": "2026-03-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "异形 3": {
+    "first_publish_date": "2026-03-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "迷情漩涡": {
+    "first_publish_date": "2026-03-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "瓶装火箭": {
+    "first_publish_date": "2026-03-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "追随": {
+    "first_publish_date": "2026-03-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "公园长椅上的盖伊与玛德琳": {
+    "first_publish_date": "2026-03-22",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "无间道": {
+    "first_publish_date": "2026-03-26",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "无间道2": {
+    "first_publish_date": "2026-03-26",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "无间道3：终极无间": {
+    "first_publish_date": "2026-03-26",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "挽救计划": {
+    "first_publish_date": "2026-03-27",
+    "published_modes": [
+      "single"
+    ]
+  },
+  "教父2": {
+    "first_publish_date": "2026-03-28",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "教父3": {
+    "first_publish_date": "2026-03-28",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "小森林：冬春篇": {
+    "first_publish_date": "2026-03-29",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "秘密花园": {
+    "first_publish_date": "2026-03-29",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "春天的故事": {
+    "first_publish_date": "2026-03-29",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "绿山墙安妮": {
+    "first_publish_date": "2026-03-29",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "浮生若梦": {
+    "first_publish_date": "2026-04-02",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "乱世佳人": {
+    "first_publish_date": "2026-04-02",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "歌舞大王齐格飞": {
+    "first_publish_date": "2026-04-02",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "叛舰喋血记": {
+    "first_publish_date": "2026-04-02",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "一夜风流": {
+    "first_publish_date": "2026-04-02",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "左拉传": {
+    "first_publish_date": "2026-04-02",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "蝴蝶梦": {
+    "first_publish_date": "2026-04-07",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "青山翠谷": {
+    "first_publish_date": "2026-04-07",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "卡萨布兰卡": {
+    "first_publish_date": "2026-04-07",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "失去的周末": {
+    "first_publish_date": "2026-04-07",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "与我同行": {
+    "first_publish_date": "2026-04-07",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "忠勇之家": {
+    "first_publish_date": "2026-04-07",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "黄金时代": {
+    "first_publish_date": "2026-04-15",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "君子协定": {
+    "first_publish_date": "2026-04-15",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "王子复仇记": {
+    "first_publish_date": "2026-04-15",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "当代奸雄": {
+    "first_publish_date": "2026-04-15",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "彗星美人": {
+    "first_publish_date": "2026-04-15",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "一个美国人在巴黎": {
+    "first_publish_date": "2026-04-15",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "精武英雄": {
+    "first_publish_date": "2026-04-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "醉拳2": {
+    "first_publish_date": "2026-04-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "新龙门客栈": {
+    "first_publish_date": "2026-04-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "猛龙过江": {
+    "first_publish_date": "2026-04-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "少林寺": {
+    "first_publish_date": "2026-04-19",
+    "published_modes": [
+      "collection"
+    ]
+  },
+  "卧虎藏龙": {
+    "first_publish_date": "2026-04-19",
+    "published_modes": [
+      "collection"
+    ]
+  }
+}
