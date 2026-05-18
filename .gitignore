@@ -13,6 +13,11 @@ __pycache__/
 .venv/
 venv/
 
+# Runtime data
+cookies.json
+history.json
+*.json.tmp
+
 # IDE
 .vscode/
 .idea/
