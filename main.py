@@ -222,7 +222,19 @@ def run_preview_mode():
             print(f"   📥 [PreviewCache] 复用单片缓存: {movie_key}")
             # 运行时字段以本次扫描结果为准：顺序、图片路径、锁定信息都不能从旧缓存盲信。
             working_movie = cache_mgr.merge_with_runtime_movie(movie, cached_movie)
-            if writer_agent.needs_meta_refresh(working_movie):
+            if meta_fetcher.llm_runtime == "codex_sdk":
+                # 已确认规则：Codex SDK 模式每部电影每次运行至少执行一次实时联网核验。
+                # hook/summary 等生成结果继续复用，避免缓存价值完全丢失。
+                print("   🌐 [PreviewCache] Codex 模式命中缓存，仍执行本次实时事实核验...")
+                try:
+                    working_movie = meta_fetcher.collect_one(
+                        movie,
+                        initial_data=working_movie,
+                    )
+                except Exception as e:
+                    print(f"   ⛔ [熔断] 《{movie_name}》缓存事实刷新失败: {e}")
+                    return
+            elif writer_agent.needs_meta_refresh(working_movie):
                 print("   🔄 [PreviewCache] 旧缓存不满足当前配置，正在仅重查当前电影...")
                 try:
                     working_movie = meta_fetcher.collect_one(movie)

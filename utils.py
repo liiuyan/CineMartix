@@ -5,7 +5,6 @@ import shutil  # [重构 板块3] 新增: PendingManager.archive_folder 需要
 import requests
 import datetime
 import re # [保留] 用于正则处理
-from openai import OpenAI
 import config  # 引用配置
 
 class HistoryManager:
@@ -120,8 +119,28 @@ class XHSClient:
             return None
 
 class LLMBrain:
-    """统一 LLM 大脑：按配置切换 DeepSeek / Qwen 调用逻辑"""
+    """统一 LLM 大脑：严格按配置切换 API 或 Codex SDK 运行时。"""
     def __init__(self):
+        runtime = str(
+            getattr(getattr(config.Strategy, "System", None), "LLM_RUNTIME", "api")
+        ).strip().lower()
+        if runtime not in {"api", "codex_sdk"}:
+            raise ValueError(
+                f"未知 LLM_RUNTIME: {runtime}，仅支持 'api' 或 'codex_sdk'。"
+            )
+
+        self.runtime = runtime
+        self.codex_runtime = None
+        self.client = None
+
+        if self.runtime == "codex_sdk":
+            # 延迟导入保证 API 模式不依赖 Codex SDK；共享实例保证全程序只有一个客户端。
+            from services.codex_runtime import get_codex_runtime
+
+            self.codex_runtime = get_codex_runtime()
+            self.provider = "codex_sdk"
+            return
+
         provider = str(
             getattr(getattr(config.Strategy, "System", None), "LLM_PROVIDER", "deepseek")
         ).strip().lower()
@@ -130,7 +149,9 @@ class LLMBrain:
             provider = "deepseek"
 
         self.provider = provider
-        self.client = None
+        # OpenAI 兼容客户端仅在 API 模式中加载，Codex SDK 模式不会读取或使用 API Key。
+        from openai import OpenAI
+
         if self.provider == "deepseek":
             self.client = OpenAI(api_key=config.LLM_API_KEY, base_url=config.LLM_BASE_URL)
         elif self.provider == "qwen" and config.QWEN_API_KEY:
@@ -151,9 +172,23 @@ class LLMBrain:
         return url
 
     def think(self, prompt, system_prompt="你是一个专业的小红书电影博主。"):
+        if self.runtime == "codex_sdk":
+            return self._think_with_codex(prompt, system_prompt)
         if self.provider == "qwen":
             return self._think_with_qwen(prompt, system_prompt)
         return self._think_with_deepseek(prompt, system_prompt)
+
+    def _think_with_codex(self, prompt, system_prompt):
+        """Codex SDK 失败时直接返回失败，不回退到 DeepSeek/Qwen API。"""
+        if self.codex_runtime is None:
+            print("❌ Codex SDK 调用失败: 运行时未初始化")
+            return None
+
+        try:
+            return self.codex_runtime.think(str(prompt), str(system_prompt))
+        except Exception as e:
+            print(f"❌ Codex SDK 调用失败: {e}")
+            return None
 
     def _think_with_deepseek(self, prompt, system_prompt):
         if not config.LLM_API_KEY:

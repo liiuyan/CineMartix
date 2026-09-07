@@ -37,7 +37,7 @@ import config
 from services.cover_renderer import CoverRenderer
 
 
-TEST_IMAGE_PATH = "/Users/lihouyan/Documents/电影图片资源/collections/store/知名导演｜六位美国现代名导的处女作/1.jpg"
+TEST_IMAGE_PATH = "/Users/lihouyan/Downloads/dasha-yukhymyuk-sknAQ799dWI-unsplash.jpg"
 OUTPUT_PATH = os.path.join(config.BASE_DIR, "test_cover_output.jpg")
 TEMP_OUTPUT_DIR = os.path.join(config.BASE_DIR, ".cover_test_output")
 
@@ -57,48 +57,54 @@ TEST_FOCUS_Y = None
 
 TEST_COVER_DATA = {
     "path": TEST_IMAGE_PATH,
-    "title_lines": ["6位", "美国现代名导", "长片处女作"],
+    "title_lines": ["锐评", "2026", "暑期档电影"],
     "raw_title": r"在海风尽头\n所有名字都会\n重新发光",
 }
 
 TEST_MOVIES = [
     {
-        "name": "坠入地球黄昏前的宇航员",
-        "original_title": "The Astronaut Who Fell Before Sunset",
+        "name": "火遮眼",
+        "original_title": "The Furious",
         "is_china_film": False,
     },
     {
-        "name": "她在海风里想起所有未寄出的信",
-        "original_title": "All the Letters She Never Sent",
+        "name": "功夫女足",
+        "original_title": "Kung Fu Soccer",
         "is_china_film": False,
     },
     {
-        "name": "比宇宙尽头更远的回声",
-        "original_title": "Echoes Beyond the Edge of the Universe",
+        "name": "八仙",
+        "original_title": "All Wishes Come True",
         "is_china_film": False,
     },
     {
-        "name": "雾中列车会开往记忆最深处",
-        "original_title": "The Train Through the Deepest Fog of Memory",
+        "name": "蜘蛛侠：崭新之日",
+        "original_title": "Spider‑Man: Brand New Day",
         "is_china_film": False,
     },
     {
-        "name": "春天在旧胶片里慢慢复燃",
-        "original_title": "",
+        "name": "年会不能停 2",
+        "original_title": "Johnny Keep Walking! 2",
         "is_china_film": True,
     },
     {
-        "name": "月光照进废墟时我们谈论明天",
-        "original_title": "When Moonlight Crossed the Ruins We Spoke of Tomorrow",
+        "name": "奥德赛",
+        "original_title": "The Odyssey",
         "is_china_film": False,
     },
     {
-        "name": "雾中列车会开往记忆最深处",
-        "original_title": "The Train Through the Deepest Fog of Memory",
+        "name": "牛来",
+        "original_title": "Niu Lai",
         "is_china_film": False,
-    },{
-        "name": "雾中列车会开往记忆最深处",
-        "original_title": "The Train Through the Deepest F",
+    },
+    {
+        "name": "欢迎来龙餐馆",
+        "original_title": "Once Upon a Time in the Middle East",
+        "is_china_film": False,
+    },
+    {
+        "name": "空枪",
+        "original_title": "V",
         "is_china_film": False,
     },
 ]

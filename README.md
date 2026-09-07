@@ -16,11 +16,23 @@ CineMatrix 采用 Agent 分工架构，当前支持四条业务赛道：
 核心能力：
 
 - 选题：`pending.txt` 点播优先 + AI 自动选题
-- 元数据：TMDB / OMDB / Serper / Gemini（preview 兜底）
+- 元数据：TMDB / OMDB / Codex Live Web Search / Serper / Gemini（仅 API 模式兜底）
 - 文案：结构化生成 + 长度熔断 + 标签组装
 - 视觉：人工素材优先 / 渲染拼接 / collection 与 preview 封面渲染 / CLIP 去重
 - 代理：读取 `note.md` 与编号图片，直接复用统一发布通道
 - 发布：本地发布服务调用 + 发布前决策菜单（放弃/立即/定时）+ 成功后原子收尾
+
+---
+
+## 📈 项目成果
+
+**两个月打造账号总点击量达25w+，爆款点击量5w+，点击量上万作品达9部。**
+
+以上成果数据由账号运营者统计，以下为部分作品的数据截图：
+
+![部分作品互动数据](docs/images/account-results-interactions.jpg)
+
+![部分作品点击量数据](docs/images/account-results-views.jpg)
 
 ---
 
@@ -52,6 +64,7 @@ agents/
 
 services/
   ├─ clip_engine.py          # CLIP 单例引擎
+  ├─ codex_runtime.py        # Codex SDK 共享客户端与 Preview 联网会话
   ├─ cover_renderer.py       # 通用封面渲染器（preview / collection 共用）
   └─ preview_cache.py        # preview 逐电影临时缓存管理器
 
@@ -117,10 +130,32 @@ little_red/
 项目未提供 `requirements.txt`，按当前代码依赖安装：
 
 ```bash
-pip install openai requests python-dotenv pillow torch transformers
+pip install openai openai-codex requests python-dotenv pillow torch transformers
 ```
 
-### 3. 配置 `.env`
+### 3. 选择 LLM 运行时
+
+在 `config.py` 中选择 API 或 Codex SDK：
+
+```python
+class Strategy:
+    class System:
+        LLM_RUNTIME = "codex_sdk"  # 可选: "api" / "codex_sdk"
+        LLM_PROVIDER = "deepseek"  # 仅 API 模式生效: "deepseek" / "qwen"
+
+        CODEX_MODEL = "gpt-5.6-terra"
+        CODEX_REASONING_EFFORT = "high"
+```
+
+- `api`：普通文本生成保持现有 DeepSeek/Qwen API 调用。
+- `codex_sdk`：普通文本生成使用本机 ChatGPT 登录态，不读取 DeepSeek 或 Qwen API Key。
+- 两种运行时严格隔离，失败时不会自动切换。
+- Codex SDK 模式启动前，需要先在本机 Codex 中登录 ChatGPT。
+- Preview 在 `codex_sdk` 模式下使用 Codex 原生 Live Web Search，并完全绕过 Gemini；`api` 模式继续保留原 Gemini 兜底。
+
+### 4. 配置 `.env`
+
+仅 API 模式需要配置对应的 LLM Key；TMDB、OMDB、Serper 等数据服务 Key 仍按业务需要保留。
 
 在项目根目录创建或编辑 `.env`：
 
@@ -144,7 +179,7 @@ OMDB_API_KEY=...
 SERPER_API_KEY=...
 SEARCH_API_KEY=...
 
-# Preview (Gemini Grounding)
+# Preview API 模式专用 (Gemini Grounding)
 GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-2.5-flash
 ```
@@ -153,14 +188,14 @@ GEMINI_MODEL=gemini-2.5-flash
 
 - DeepSeek 官方当前推荐模型名为 `deepseek-v4-pro` / `deepseek-v4-flash`；旧 `deepseek-chat` 与 `deepseek-reasoner` 将在 `2026-07-24` 废弃。
 - 项目内部对 DeepSeek 使用 OpenAI 兼容客户端调用，默认 `LLM_MODEL=deepseek-v4-pro`，并显式开启 `thinking` 与 `reasoning_effort=high`。
-- `LLM_PROVIDER="qwen"` 时，`LLMBrain` 会默认开启 Qwen 强制联网搜索，用于补足最新事实信息；`Gemini` 的 preview 兜底职责不受影响。
+- `LLM_RUNTIME="api"` 且 `LLM_PROVIDER="qwen"` 时，`LLMBrain` 会默认开启 Qwen 强制联网搜索；Gemini 仍只承担 API 模式的 Preview 兜底。
 - 北京部署下使用 `qwen3.5-plus` 时，请走 DashScope `compatible-mode`，不要使用旧的 `.../api/v1/services/aigc/text-generation/generation`；否则可能返回 `400 url error`。
 - 项目内部对 Qwen 使用 OpenAI 兼容客户端调用；`QWEN_BASE_URL` 允许直接填写完整的 `.../compatible-mode/v1/chat/completions` 地址，程序会自动归一化处理。
 - 豆瓣/搜索链路优先使用 `SERPER_API_KEY`，未配置时回退 `SEARCH_API_KEY`。
-- preview 的 Gemini 硬必填兜底仅在 `GEMINI_API_KEY` 存在且 `GEMINI_MAX_GROUNDING_PER_MOVIE > 0` 时触发；噱头专项尝试由 `GEMINI_HOOK_ATTEMPTS` 控制。
+- Preview 的 Gemini 兜底仅在 `LLM_RUNTIME="api"`、`GEMINI_API_KEY` 存在且预算大于 0 时触发；`codex_sdk` 模式不会调用 Gemini。
 - 发布服务地址固定在 `config.py`：`http://localhost:18060/api/v1`。
 
-### 4. 选择运行模式
+### 5. 选择业务运行模式
 
 在 `config.py` 中设置：
 
@@ -345,35 +380,35 @@ preview 还分两种子模式：
 
 `PreviewMetaFetcher` 采集顺序：
 
-1. TMDB
-2. Serper（白名单过滤，逐次补齐；满足“硬必填(不含噱头)+电影类型”会提前停止，最多 `SERPER_MAX_QUERIES_PER_MOVIE` 次）
-3. Gemini Grounding（补硬必填；可按 `GEMINI_HOOK_ATTEMPTS` 进行噱头专项尝试）
+`LLM_RUNTIME="codex_sdk"`：
+
+1. TMDB 结构化数据
+2. OMDB 结构化数据
+3. Codex 原生 Live Web Search（每部电影至少 1 轮、最多 `CODEX_MAX_SEARCH_ROUNDS_PER_MOVIE` 轮）
+4. Serper 可选后备（仅在 Codex 多轮后硬字段仍缺失时触发）
+
+`LLM_RUNTIME="api"` 保持原顺序：TMDB → Serper → Gemini Grounding。
 
 #### 单片采集决策流程（重点）
 
-以下逻辑按“每一部电影”独立执行：
+Codex SDK 模式下，以下逻辑按“每一部电影”独立执行：
 
-1. 先走 TMDB 主通道拿结构化字段（上映日期、类型、地区、演职员、简介等）。
-2. 若 TMDB 已满足“硬必填(不含噱头) + `genres`”，则直接跳过 Serper。
-3. 否则进入 Serper 循环（最多 `SERPER_MAX_QUERIES_PER_MOVIE` 次）：
-   - 每次查询后都会增量抽取并回填字段。
-   - 每次都会打印当前“硬必填缺失 + 类型状态”日志。
-   - 一旦满足“硬必填(不含噱头) + `genres`”，立刻提前停止，不再跑满预算。
-4. 若 Serper 到上限后 `genres` 仍缺失，只告警，不熔断（类型是“尽量收集”字段）。
-5. 进入 Gemini 硬必填兜底循环（最多 `GEMINI_MAX_GROUNDING_PER_MOVIE` 次）：
-   - 仅针对硬必填字段补齐。
-   - 不会因为 `hook` 缺失而继续该循环。
-6. 若 `hook` 仍无效，则执行 Gemini 噱头专项尝试（最多 `GEMINI_HOOK_ATTEMPTS` 次）：
-   - 当 Gemini 返回的 `hook` 通过清洗校验（`clean_validate_hook`，当前实现为 `_validate_hook_candidate`）时，会打印：
-     - `✅ [Gemini] 合规噱头: ...`（普通 Gemini 补字段链路）
-     - `✅ [Gemini-Hook] 合规噱头: ...`（Gemini-Hook 专项链路）
-7. 若噱头仍无效，再执行本地 `_generate_hookline()` 兜底生成：
-   - 输入包含当前已获取的全部信息（TMDB/Serper/Gemini 字段 + snippets）。
-   - 会先从信息中挑选 `1-2` 个最有噱头的点，结合示例生成 `6-22` 字噱头。
-   - 句末 `。 . , ，` 不计字数，且会在清洗阶段移除。
-   - 若不合规会带上“上一轮失败原因”重试，最多 `HOOK_RETRY_TIMES` 次。
-8. 进入 Writer 阶段后，`_ensure_hook()` 会做最终兜底与同口径重试（同样基于 `1-2` 个噱头点 + 示例）。
-9. Meta 阶段最终必填校验不会因 `hook` 缺失提前熔断；`hook` 最终由 Writer 阶段判定，失败才整夹熔断。
+1. 先从 TMDB、OMDB 获取结构化字段与对应数据源链接。
+2. 为当前电影建立独立 Codex 线程，并至少执行一次实时联网搜索：
+   - `web_search="live"`
+   - `tools.web_search.context_size="high"`
+   - 只读沙箱，禁用 Shell、应用、连接器、MCP 和子代理
+   - 不设置硬性域名白名单，但优先片方、发行方、院线等一手来源
+3. Codex 返回结构化 JSON 和来源 URL：
+   - 有实际 `webSearch` 事件且存在有效来源时才采纳联网字段
+   - 有来源支持的纠正值可以覆盖数据库冲突值
+   - 无法确认的字段必须留空，不允许写“待定”或猜测
+4. 若字段仍缺失，复用同一电影线程继续搜索，最多 3 轮。
+5. 三轮后硬字段仍缺失时，可调用 Serper 作为后备；Codex SDK 模式下 Serper 同样不使用域名白名单。
+6. 搜索后若仍缺少必填字段，立即熔断当前 Preview 任务；其他未确认字段写入 `unconfirmed_fields`，保留电影并将字段留空。
+7. `hook` 仍沿用当前 `_generate_hookline()` 与 Writer 最终修正链路。
+
+API 模式继续使用原有 Serper 增量补齐、Gemini 硬字段兜底和 Gemini hook 专项尝试，不受 Codex 分支影响。
 
 #### 逐电影处理与临时缓存（本轮新增）
 
@@ -387,7 +422,8 @@ preview 现在不是“先把所有电影整批查完再统一写文案”，而
    - 排序后的 `movie_keys`
 2. 读取 `资料/cache/preview_cache.json`
 3. 对当前任务中的每一部电影：
-   - 若命中完整缓存，则直接复用该电影的数据
+   - API 模式命中完整缓存时，直接复用该电影的数据
+   - Codex SDK 模式命中缓存时，复用 hook/summary 等生成结果，但仍至少执行一次实时事实核验
    - 若未命中缓存，则对该电影执行完整采集与写作链路
    - 只有当该电影的元数据、hook、summary（若开启）都完成后，才立即写入缓存
 4. 若在后续某部电影熔断：
@@ -418,16 +454,22 @@ preview 现在不是“先把所有电影整批查完再统一写文案”，而
 - 只缓存“完整电影”，不缓存半成品
 - 不缓存 `path/index`，这两个字段每次都以当前任务扫描结果为准
 
-必填规则（当前实现）：
+事实缺失规则（当前实现）：
 
-- Meta 阶段硬必填：
+- API 与 Codex SDK 两种模式共用同一套 Meta 必填规则：
   - 电影名必须有
   - 上映日期必须有
   - 非中国电影原名必须有（中国电影原名可空）
-  - 当 `SHOW_SUMMARY_BLOCK=True` 时简介必须有
+  - 当 `SHOW_SUMMARY_BLOCK=True` 时简介必须有；关闭时简介可空
+- Codex SDK 模式会在 TMDB、OMDB、Codex 最多 3 轮联网搜索与 Serper 后备全部结束后执行校验：
+  - 任一必填字段仍缺失时，熔断当前 Preview 任务
+  - 导演、演员、类型、地区、上映地区等可选字段缺失时，电影继续保留
+  - 可选未确认字段保持为空，并记录在 `unconfirmed_fields`
 - Final 阶段（Writer 兜底后发布口径）：
   - 噱头必须有（最终不可为空）
 - 电影类型（`genres`）会尽量收集，但缺失不会触发熔断
+
+说明：Writer 仍保留同样的必填字段终检，防止旧缓存或手工数据绕过 Meta 校验。
 
 上映日期优先级：正式院线优先（`type=3 > type=2 > type=1`，每档取最早日期）。
 
@@ -617,7 +659,10 @@ preview 现在不是“先把所有电影整批查完再统一写文案”，而
 ```python
 class Strategy:
     class System:
-        LLM_PROVIDER = "deepseek"    # 可选: "deepseek" / "qwen"
+        LLM_RUNTIME = "codex_sdk"    # api / codex_sdk
+        LLM_PROVIDER = "deepseek"    # 仅 api 模式生效: deepseek / qwen
+        CODEX_MODEL = "gpt-5.6-terra"
+        CODEX_REASONING_EFFORT = "high"
         RUN_MODE = "single"          # single / collection / preview / proxy
         ENABLE_PUBLISH_DECISION_MENU = True  # 发布前菜单总开关
         USE_LOCAL_SCORES = True       # 仅合集模式有效
@@ -681,9 +726,10 @@ class Strategy:
         SHOW_LIST_GENRES = False
         SHOW_LIST_REGION = False
 
+        CODEX_MAX_SEARCH_ROUNDS_PER_MOVIE = 3
         SERPER_MAX_QUERIES_PER_MOVIE = 5
-        GEMINI_MAX_GROUNDING_PER_MOVIE = 3
-        GEMINI_HOOK_ATTEMPTS = 1
+        GEMINI_MAX_GROUNDING_PER_MOVIE = 3  # 仅 API 模式
+        GEMINI_HOOK_ATTEMPTS = 1            # 仅 API 模式
         SERPER_DOMAIN_WHITELIST = ["imdb.com", "douban.com", ...]
 
         HOOK_MIN_LEN = 6
@@ -761,10 +807,29 @@ class Strategy:
 - `agents/writer.py`：`AESTHETICS_PROTOCOL`、主生成 Prompt、标题重写 Prompt
 - `agents/collection_writer.py`：`MAGAZINE_AESTHETICS_PROTOCOL`、`mode_one/two/three/four/five` 大模板
 - `agents/preview_meta.py` 与 `agents/preview_writer.py`：hook 生成大模板（两端保持同口径）
-- `agents/preview_meta.py`：Serper 抽取 Prompt、Gemini Grounding Prompt
+- `agents/preview_meta.py`：Codex 联网核查、Serper 抽取与 API 模式 Gemini Grounding Prompt
 
 建议暂时保留内联：
 - 明显短小且与运行时变量强绑定的 Prompt（改动频率低、抽离收益小）
+
+---
+
+## 🧪 自动化测试
+
+完成依赖安装后，激活运行项目所用的虚拟环境，在项目根目录执行：
+
+```bash
+python3 -m unittest test_llm_runtime test_preview_codex_search -v
+```
+
+当前包含两个测试脚本，共 12 项测试：
+
+- `test_llm_runtime.py`（4 项）：验证 API/Codex 运行时分流、共享运行时复用与非法配置处理。
+- `test_preview_codex_search.py`（8 项）：验证 Preview 搜索结果采纳、冲突字段纠正、来源记录、必填与可选字段处理、缓存生成内容复用，以及 API 模式的 Gemini 兜底。
+
+测试使用 Python 标准库 `unittest` 和模拟对象，不会发起真实模型调用、联网搜索或小红书发布，也不需要真实 API Key 或 Codex 登录态。全部通过时，输出中会显示 `Ran 12 tests` 和 `OK`。
+
+这两个脚本应随对应功能代码一起维护。它们验证运行时分流和 Preview 业务逻辑；真实 Codex 登录、外部数据服务与小红书发布仍需单独进行集成验证。
 
 ---
 

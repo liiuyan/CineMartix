@@ -29,7 +29,7 @@ class CoverRenderer:
                 # - focus_x 更小 => 更偏左裁；更大 => 更偏右裁
                 # 说明：preview / collection 各自独立，后续只需在这里调数值即可。
                 "preview": {"focus_x": 0.5, "focus_y": 0.5},
-                "collection": {"focus_x": 0.48, "focus_y": 0.5},
+                "collection": {"focus_x": 0.5, "focus_y": 0.5},
             },
             "watermark": {
                 "font_path": config.FONT_SCORE_PATH,  # 水印字体（中文/英文共用）
@@ -37,7 +37,7 @@ class CoverRenderer:
                 "min_font_size": 30,  # 全局统一缩字号的最小下限
                 "color": (255, 255, 255, 70),  # 水印颜色与透明度（A 越小越淡）
                 "start_x": 480,  # 水印列起始 X（越大越靠右）
-                "start_y": 100,  # 水印分布起始 Y（第一条起点）
+                "start_y": 30,  # 水印分布起始 Y（第一条起点）
                 "end_y": 1550,  # 水印分布结束 Y（最后一条接近这里）
                 "right_margin": 0,  # 水印文本块右边界距离画布右侧的留白
                 "cn_max_lines": 2,  # 中文名最多换行数
@@ -56,7 +56,7 @@ class CoverRenderer:
                     # - offset_y: 在当前行默认 y 基础上上下微调（+ 下移，- 上移）
 
                     # 第 1 行样式（主视觉）
-                    {"font_path": config.FONT_TITLE_PATH, "size": 180, "offset_x": 0, "offset_y": 0}, 
+                    {"font_path": config.FONT_TITLE_PATH, "size": 180, "offset_x": 0, "offset_y": 20},
                     # 第 2 行样式
                     {"font_path": config.FONT_TITLE_PATH, "size": 120, "offset_x": 0, "offset_y": 0},  
                     # 第 3 行样式（可空，空行仅占位）

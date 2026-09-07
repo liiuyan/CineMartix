@@ -16,12 +16,26 @@ class Strategy:
     class System:
         """[v4.0 新增] 系统运行模式与全局配置"""
         # 运行模式选择: "single" (单片模式) / "collection" (合集盘点模式) / "preview" (新片速递模式) / "proxy" (代理发布模式)
-        RUN_MODE: str = "collection"
+        RUN_MODE: str = "proxy"
 
-        # LLM 提供方选择:
+        # LLM 运行时选择:
+        # - "api": 普通文本生成使用现有 DeepSeek / Qwen API 调用链路
+        # - "codex_sdk": 普通文本生成使用 ChatGPT 登录态驱动 Codex Python SDK
+        # 两种模式严格隔离，调用失败时不会自动回退到另一种模式。
+        # Preview 中 Gemini 只属于 API 模式；Codex SDK 模式使用原生 Live Web Search。
+        LLM_RUNTIME: str = "codex_sdk"
+
+        # API 模式下的 LLM 提供方选择（LLM_RUNTIME="api" 时生效）:
         # - "deepseek": 使用 DeepSeek V4 OpenAI 兼容调用链路
         # - "qwen": 使用 DashScope Qwen 文本模型，并默认开启强制联网搜索
         LLM_PROVIDER: str = "deepseek"
+
+        # Codex SDK 模式配置（LLM_RUNTIME="codex_sdk" 时生效）。
+        # 首版固定为无硬超时；长任务会定期输出已运行时间，可用 Ctrl+C 手动中止。
+        CODEX_MODEL: str = "gpt-5.6-terra"
+        CODEX_REASONING_EFFORT: str = "high"
+        CODEX_MAX_RETRIES: int = 2
+        CODEX_STATUS_INTERVAL_SECONDS: int = 30
 
         # [新增] 发布前决策菜单总开关
         # True: 启用发布前菜单（single=4选项，collection/preview=3选项）
@@ -182,16 +196,20 @@ class Strategy:
         SHOW_LIST_REGION: bool = False  # 是否显示国家/地区
 
         # ================= 外部检索预算(按单部电影计数) =================
+        # Codex SDK 模式下，每部电影最多进行 3 轮原生 Live Web Search。
+        # 第一轮必定执行；后续轮次仅在事实字段仍不完整时继续，并复用同一电影线程。
+        CODEX_MAX_SEARCH_ROUNDS_PER_MOVIE: int = 3
+
         # Serper 最多请求次数。
         # 例如设为 5：每部电影最多向 Serper 发起 5 次搜索请求（达到后停止）。
         # 次数越高，补齐信息机会越大，但 API 消耗更高。
         SERPER_MAX_QUERIES_PER_MOVIE: int = 5
 
-        # Gemini(Google Grounding)最多兜底次数。
+        # Gemini(Google Grounding)最多兜底次数（仅 LLM_RUNTIME="api" 时使用）。
         # 仅当“必填字段仍缺失”时才会触发 Gemini 补齐；建议 <=3 控成本。
         GEMINI_MAX_GROUNDING_PER_MOVIE: int = 3
 
-        # Gemini 噱头补写尝试次数（独立于硬必填补齐）。
+        # Gemini 噱头补写尝试次数（仅 LLM_RUNTIME="api"，独立于硬必填补齐）。
         # 触发时机：硬必填补齐流程结束后，若 hook 仍无效则执行。
         # 说明：补写失败不会熔断，后续仍会走本地噱头兜底生成与 Writer 校验重写链路。
         GEMINI_HOOK_ATTEMPTS: int = 1
@@ -391,8 +409,8 @@ SEARCH_API_KEY = os.getenv("SEARCH_API_KEY")  # 搜索 API 兼容 Key (可作为
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 OMDB_API_KEY = os.getenv("OMDB_API_KEY")  # OMDB Key (用于烂番茄/MTC分数)
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")  # Serper 搜索 Key (preview 模式用于检索 IMDb/豆瓣/宣发信息)
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # Gemini Key (preview 模式用于 Google Grounding 兜底补齐字段)
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")  # Gemini 模型名，默认 gemini-2.5-flash
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # Gemini Key（仅 API 模式的 preview Grounding 兜底使用）
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")  # Gemini 模型名（仅 API 模式使用）
 
 # 小红书 API 地址 (本地服务)
 API_BASE_URL = "http://localhost:18060/api/v1"

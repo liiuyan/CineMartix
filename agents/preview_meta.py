@@ -1,3 +1,4 @@
+import datetime
 import json
 import re
 from urllib.parse import urlparse
@@ -13,21 +14,48 @@ class PreviewMetaFetcher:
     🧭 新片速递数据采集 Agent
 
     采集链路:
-    1) TMDB API 主通道
-    2) Serper 搜索片段补齐
-    3) Gemini Grounding 最终兜底
+    - API 模式: TMDB -> Serper -> Gemini Grounding
+    - Codex SDK 模式: TMDB -> OMDB -> Codex Live Web Search -> Serper 可选后备
     """
 
+    CODEX_FACT_FIELDS = (
+        "original_title",
+        "original_language",
+        "release_date",
+        "release_region",
+        "genres",
+        "region",
+        "director",
+        "actors",
+        "overview",
+    )
+
     def __init__(self):
+        self.llm_runtime = str(
+            getattr(config.Strategy.System, "LLM_RUNTIME", "api")
+        ).strip().lower()
+
         # 外部数据源鉴权
         self.tmdb_key = config.TMDB_API_KEY
+        self.omdb_key = config.OMDB_API_KEY
         self.serper_key = config.SERPER_API_KEY or config.SEARCH_API_KEY
-        self.gemini_key = config.GEMINI_API_KEY
+        # Codex SDK 模式严格绕过 Gemini Key 与调用链路。
+        self.gemini_key = config.GEMINI_API_KEY if self.llm_runtime == "api" else None
         self.gemini_model = config.GEMINI_MODEL
 
         # 单片预算上限：严格受 config 控制，避免无限请求。
         self.max_serper_queries = max(
             0, int(getattr(config.Strategy.Preview, "SERPER_MAX_QUERIES_PER_MOVIE", 5))
+        )
+        self.max_codex_search_rounds = max(
+            1,
+            int(
+                getattr(
+                    config.Strategy.Preview,
+                    "CODEX_MAX_SEARCH_ROUNDS_PER_MOVIE",
+                    3,
+                )
+            ),
         )
         self.max_gemini_grounding = max(
             0, int(getattr(config.Strategy.Preview, "GEMINI_MAX_GROUNDING_PER_MOVIE", 3))
@@ -61,13 +89,15 @@ class PreviewMetaFetcher:
         )
 
         self.brain = LLMBrain()
+        self.codex_runtime = getattr(self.brain, "codex_runtime", None)
 
     def run(self, movies: list) -> list | None:
         """
         批量采集入口。
 
         规则:
-        - 任何一部电影触发必填缺失，立即整夹熔断并返回 None。
+        - API 与 Codex SDK 模式都在必填字段缺失时熔断整夹。
+        - 只有非必填事实无法确认时，才保留电影并将字段留空。
         - 返回值是下游 writer/visual 可直接消费的“标准化电影字典列表”。
         """
         print("\n📊 [2/5 PreviewMetaFetcher] 正在采集新片元数据...")
@@ -85,24 +115,27 @@ class PreviewMetaFetcher:
 
         return enriched
 
-    def collect_one(self, movie: dict) -> dict:
+    def collect_one(self, movie: dict, initial_data: dict | None = None) -> dict:
         """
         对外暴露的单部电影采集入口。
 
-        新的 preview 缓存链路会逐电影调用这里，保证：
-        1. 命中缓存的电影不再重复查询；
-        2. 未命中的电影仍沿用当前完整采集逻辑。
+        initial_data 用于 Codex SDK 模式的缓存刷新：复用已有 hook/summary，
+        但仍会执行本次运行要求的数据库读取和至少一轮实时联网核验。
         """
-        return self._collect_for_one_movie(movie)
+        return self._collect_for_one_movie(movie, initial_data=initial_data)
 
-    def _collect_for_one_movie(self, movie: dict) -> dict:
+    def _collect_for_one_movie(
+        self,
+        movie: dict,
+        initial_data: dict | None = None,
+    ) -> dict:
         """
-        单片采集总流程（按成本从低到高）:
+        单片采集总流程（按当前 LLM_RUNTIME 分流）:
         1) TMDB 结构化数据
-        2) Serper 片段 + LLM抽取（满足“硬必填+类型”即提前停止）
-        3) Gemini Grounding 兜底
+        2) Codex SDK 模式追加 OMDB + 至少一轮原生联网核验；API 模式保留旧链路
+        3) 仍缺字段时使用对应后备通道
         4) 缺噱头时再生成噱头
-        5) 标准化 + 规则校验（不合格抛异常）
+        5) 标准化后统一校验必填字段；其他未确认字段留空
         """
         name = movie["name"]
         lock_year = (movie.get("lock_year") or "").strip() or None
@@ -131,24 +164,74 @@ class PreviewMetaFetcher:
             "hook": "",
             "hook_snippets": [],
             "tmdb_id": None,
+            "imdb_id": "",
             "is_china_film": False,
+            "sources": [],
+            "unconfirmed_fields": [],
         }
+
+        if isinstance(initial_data, dict):
+            # 只复用昂贵的生成结果；旧事实字段不带入，避免无法重新确认时误用历史值。
+            for generated_key in ["hook", "summary"]:
+                if generated_key in initial_data:
+                    result[generated_key] = initial_data.get(generated_key)
 
         # 1) TMDB 主通道：优先取结构化字段，稳定且成本低。
         tmdb_data = self._fetch_from_tmdb(name, lock_original_title, lock_year)
-        self._merge_missing(result, tmdb_data)
+        self._merge_source_payload(result, tmdb_data)
 
-        # 2) Serper 搜索补齐：先用便宜通道补缺。
-        # 注意：_collect_serper_snippets 内部已实现“收齐即停”，不会盲目跑满预算。
-        snippets = self._collect_serper_snippets(
-            name, lock_original_title, lock_year, result=result
+        if self.llm_runtime == "codex_sdk":
+            # 2A) Codex SDK 模式：OMDB 作为第二结构化数据源。
+            omdb_data = self._fetch_from_omdb(
+                name,
+                lock_original_title,
+                lock_year,
+                result,
+            )
+            self._merge_source_payload(result, omdb_data)
+
+            # 每部电影无论数据库字段是否齐全，都至少执行一次 Codex Live Web Search。
+            self._collect_with_codex_web(
+                name,
+                lock_original_title,
+                lock_year,
+                result,
+            )
+
+            # Codex 多轮后硬字段仍缺失时，Serper 才作为可选后备；不会回退到 Gemini。
+            hard_missing = self._collect_hard_missing_for_serper(result, lock_original_title)
+            if hard_missing:
+                print(
+                    "      🔁 [Serper-Backup] Codex 搜索后仍有未确认字段，"
+                    "尝试使用 Serper 片段补充。"
+                )
+                snippets = self._collect_serper_snippets(
+                    name,
+                    lock_original_title,
+                    lock_year,
+                    result=result,
+                )
+            else:
+                snippets = []
+        else:
+            # 2B) API 模式：完整保留原有 Serper 搜索顺序与预算规则。
+            snippets = self._collect_serper_snippets(
+                name,
+                lock_original_title,
+                lock_year,
+                result=result,
+            )
+
+        self._append_sources(
+            result,
+            [item.get("link", "") for item in snippets if isinstance(item, dict)],
         )
         # 透传给 writer 作为最终兜底生成 hook 的上下文，不在这里裁剪语义字段。
         # 这批 snippets 虽然不会直接发布到笔记里，但会影响 hook 生成质量，因此必须进缓存。
         result["hook_snippets"] = snippets[:8]
 
         # 3) Gemini Grounding 最终兜底：仅在仍有必填缺失时触发。
-        if self.max_gemini_grounding > 0 and self.gemini_key:
+        if self.llm_runtime == "api" and self.max_gemini_grounding > 0 and self.gemini_key:
             attempts = 0
             while attempts < self.max_gemini_grounding:
                 missing = self._collect_required_missing(result, lock_original_title)
@@ -166,7 +249,12 @@ class PreviewMetaFetcher:
 
         # 3.5) Gemini 专项补写噱头（非熔断路径）
         # 仅在 hook 仍无效时触发，失败不熔断，后续继续走本地兜底生成。
-        if self.gemini_hook_attempts > 0 and self.gemini_key and (not self._normalize_hook(result.get("hook", ""))):
+        if (
+            self.llm_runtime == "api"
+            and self.gemini_hook_attempts > 0
+            and self.gemini_key
+            and (not self._normalize_hook(result.get("hook", "")))
+        ):
             for attempt in range(1, self.gemini_hook_attempts + 1):
                 print(
                     f"      🌐 [Gemini-Hook] 第 {attempt}/{self.gemini_hook_attempts} 次尝试补写噱头..."
@@ -216,8 +304,18 @@ class PreviewMetaFetcher:
             for x in self._collect_required_missing(result, lock_original_title)
             if x != "hook"
         ]
+        # 两种运行模式共用同一发布底线：数据库与所有后备检索都结束后，
+        # 上映日期、非中国电影原名、已开启简介块的源简介仍缺失时必须熔断。
         if missing_final:
             raise ValueError("缺少必填字段: " + ", ".join(missing_final))
+        if self.llm_runtime == "codex_sdk":
+            result["unconfirmed_fields"] = self._collect_codex_metadata_missing(result)
+            if result["unconfirmed_fields"]:
+                print(
+                    "      ⚠️ [Codex-Web] 多轮搜索后仍未确认可选字段: "
+                    + ", ".join(result["unconfirmed_fields"])
+                    + "；保留电影并省略这些字段。"
+                )
         if not result.get("hook"):
             print("      ⚠️ [Meta-Hook] 当前仍无合规噱头，将在 Writer 阶段执行最终兜底。")
 
@@ -287,9 +385,291 @@ class PreviewMetaFetcher:
                 "director": director,
                 "actors": actors,
                 "overview": (data.get("overview") or "").strip(),
+                "sources": [f"https://www.themoviedb.org/movie/{tmdb_id}"],
             }
         except Exception:
             return {}
+
+    def _fetch_from_omdb(
+        self,
+        movie_name: str,
+        lock_original_title: str | None,
+        lock_year: str | None,
+        current: dict,
+    ) -> dict:
+        """Codex SDK 模式的第二结构化数据源；失败时返回空字典。"""
+        if not self.omdb_key:
+            return {}
+
+        query_title = (
+            (lock_original_title or "").strip()
+            or str(current.get("original_title") or "").strip()
+            or movie_name
+        )
+        params = {
+            "apikey": self.omdb_key,
+            "t": query_title,
+            "type": "movie",
+            "plot": "full",
+        }
+        if lock_year:
+            params["y"] = lock_year
+
+        try:
+            data = requests.get(
+                "https://www.omdbapi.com/",
+                params=params,
+                timeout=10,
+            ).json()
+        except Exception:
+            return {}
+
+        if str(data.get("Response", "")).strip().lower() != "true":
+            return {}
+
+        imdb_id = self._clean_external_value(data.get("imdbID"))
+        released = self._normalize_omdb_date(data.get("Released"))
+        language = self._normalize_omdb_language(data.get("Language"))
+        source_urls = []
+        if imdb_id:
+            source_urls.append(f"https://www.imdb.com/title/{imdb_id}/")
+
+        return {
+            "imdb_id": imdb_id,
+            "original_title": self._clean_external_value(data.get("Title")),
+            "original_language": language,
+            "release_date": released,
+            "genres": self._clean_external_value(data.get("Genre")),
+            "region": self._clean_external_value(data.get("Country")),
+            "director": self._clean_external_value(data.get("Director")),
+            "actors": self._clean_external_value(data.get("Actors")),
+            "overview": self._clean_external_value(data.get("Plot")),
+            "sources": source_urls,
+        }
+
+    def _collect_with_codex_web(
+        self,
+        movie_name: str,
+        lock_original_title: str | None,
+        lock_year: str | None,
+        result: dict,
+    ):
+        """使用单部电影专属线程进行一至三轮事实核验和字段补全。"""
+        if self.codex_runtime is None:
+            print("      ⚠️ [Codex-Web] Codex 运行时未初始化，跳过原生联网搜索。")
+            return
+
+        session = self.codex_runtime.create_preview_session(
+            max_search_rounds=self.max_codex_search_rounds
+        )
+        any_web_search = False
+
+        for round_index in range(1, self.max_codex_search_rounds + 1):
+            missing_before = self._collect_codex_metadata_missing(result)
+            prompt = self._build_codex_search_prompt(
+                movie_name,
+                lock_original_title,
+                lock_year,
+                result,
+                missing_before,
+                round_index,
+            )
+            try:
+                turn = session.search_json(prompt, self._codex_search_output_schema())
+            except Exception as exc:
+                print(f"      ⚠️ [Codex-Web] 第 {round_index} 轮搜索失败: {exc}")
+                break
+
+            if not turn.web_search_used:
+                print(
+                    f"      ⚠️ [Codex-Web] 第 {round_index} 轮未检测到原生 Web Search 事件，"
+                    "本轮结果不采纳。"
+                )
+                continue
+
+            any_web_search = True
+            source_urls = self._normalize_source_urls(turn.data.get("sources", []))
+            if not source_urls:
+                print(
+                    f"      ⚠️ [Codex-Web] 第 {round_index} 轮没有返回可验证来源，"
+                    "本轮事实字段不采纳。"
+                )
+                continue
+
+            self._merge_codex_verified(result, turn.data)
+            self._append_sources(result, source_urls)
+
+            missing_after = self._collect_codex_metadata_missing(result)
+            missing_text = "无" if not missing_after else "、".join(missing_after)
+            print(
+                f"      ✅ [Codex-Web] 第 {round_index}/{self.max_codex_search_rounds} 轮完成，"
+                f"剩余未确认字段={missing_text}，来源={len(source_urls)} 条。"
+            )
+            if not missing_after:
+                break
+
+        if not any_web_search:
+            print(
+                "      ⚠️ [Codex-Web] 本电影未获得可验证的原生搜索结果；"
+                "将继续尝试 Serper 后备，并在最后执行必填字段熔断校验。"
+            )
+
+    def _build_codex_search_prompt(
+        self,
+        movie_name: str,
+        lock_original_title: str | None,
+        lock_year: str | None,
+        result: dict,
+        missing_fields: list[str],
+        round_index: int,
+    ) -> str:
+        current = {field: result.get(field, "") for field in self.CODEX_FACT_FIELDS}
+        missing_text = "无；请核验现有字段是否存在冲突" if not missing_fields else ", ".join(missing_fields)
+        return f"""
+请对电影《{movie_name}》执行第 {round_index}/{self.max_codex_search_rounds} 轮实时联网事实核查。
+你必须在本轮使用 Codex 原生 Live Web Search，不能只依赖模型记忆。
+
+识别线索：
+- 中文名：{movie_name}
+- 原名线索：{lock_original_title or ""}
+- 年份线索：{lock_year or ""}
+
+当前结构化数据：
+{json.dumps(current, ensure_ascii=False)}
+
+本轮优先核查字段：{missing_text}
+
+要求：
+1) 核验当前字段；若权威来源证明当前值有冲突，返回纠正后的值。
+2) release_date 必须输出 YYYY-MM-DD；无法确认到具体日期则留空。
+3) release_region 必须与 release_date 对应，并使用中文国家/地区全称。
+4) original_language 使用 ISO 639-1 两位小写代码；无法确认则留空。
+5) genres、region、release_region 使用中文；actors 最多保留 5 位主要演员，多值字段使用 / 分隔。
+6) overview 只写可由来源支持的剧情事实，不写推测或营销判断。
+7) 每个非空事实都必须有 sources 中的 URL 支持；sources 只放直接来源网页。
+8) 没有硬性域名白名单，但优先片方、发行方、院线等一手来源。
+9) 无法确认的字段返回空字符串，严禁猜测或把“待定”写进字段。
+"""
+
+    def _codex_search_output_schema(self) -> dict:
+        properties = {
+            field: {"type": "string"}
+            for field in self.CODEX_FACT_FIELDS
+        }
+        properties["sources"] = {
+            "type": "array",
+            "items": {"type": "string"},
+        }
+        return {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": properties,
+            "required": [*self.CODEX_FACT_FIELDS, "sources"],
+        }
+
+    def _collect_codex_metadata_missing(self, movie: dict) -> list[str]:
+        """计算需要继续联网核查的事实字段。
+
+        其中必填字段会在全部检索结束后由统一校验熔断；
+        其他字段仍允许记入 unconfirmed_fields 并在发布时省略。
+        """
+        fields = list(self.CODEX_FACT_FIELDS)
+        if self._is_china_film(
+            movie.get("original_language", ""),
+            movie.get("region", ""),
+        ):
+            fields.remove("original_title")
+
+        missing = []
+        for field in fields:
+            value = movie.get(field, "")
+            if field == "release_date":
+                if not self._normalize_date(value):
+                    missing.append(field)
+            elif not self._clean_external_value(value):
+                missing.append(field)
+        return missing
+
+    def _merge_codex_verified(self, target: dict, source: dict):
+        """只合并有来源支持的 Codex 字段，并允许纠正结构化数据冲突。"""
+        for field in self.CODEX_FACT_FIELDS:
+            value = self._clean_external_value(source.get(field))
+            if not value:
+                continue
+            if field == "release_date":
+                value = self._normalize_date(value)
+                if not value:
+                    continue
+            elif field == "original_language":
+                value = value.lower()[:2]
+            target[field] = value
+
+    def _merge_source_payload(self, target: dict, source: dict):
+        """合并结构化字段，同时把数据源链接收敛到统一 sources 列表。"""
+        if not isinstance(source, dict):
+            return
+        payload = dict(source)
+        source_urls = payload.pop("sources", [])
+        self._merge_missing(target, payload)
+        self._append_sources(target, source_urls)
+
+    def _append_sources(self, target: dict, source_urls):
+        current = target.setdefault("sources", [])
+        for url in self._normalize_source_urls(source_urls):
+            if url not in current:
+                current.append(url)
+
+    def _normalize_source_urls(self, source_urls) -> list[str]:
+        if not isinstance(source_urls, list):
+            return []
+        normalized = []
+        for raw in source_urls:
+            url = str(raw or "").strip()
+            try:
+                parsed = urlparse(url)
+            except Exception:
+                continue
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                continue
+            if url not in normalized:
+                normalized.append(url)
+        return normalized
+
+    def _clean_external_value(self, raw) -> str:
+        text = str(raw or "").strip()
+        if text.lower() in {"n/a", "na", "none", "null", "unknown", "tbd"}:
+            return ""
+        if text in {"未知", "不详", "待定"}:
+            return ""
+        return text
+
+    def _normalize_omdb_date(self, raw) -> str:
+        text = self._clean_external_value(raw)
+        if not text:
+            return ""
+        normalized = self._normalize_date(text)
+        if normalized:
+            return normalized
+        try:
+            return datetime.datetime.strptime(text, "%d %b %Y").strftime("%Y-%m-%d")
+        except ValueError:
+            return ""
+
+    def _normalize_omdb_language(self, raw) -> str:
+        first = self._clean_external_value(raw).split(",", 1)[0].strip().lower()
+        language_map = {
+            "chinese": "zh",
+            "mandarin": "zh",
+            "cantonese": "zh",
+            "english": "en",
+            "french": "fr",
+            "german": "de",
+            "italian": "it",
+            "japanese": "ja",
+            "korean": "ko",
+            "spanish": "es",
+        }
+        return language_map.get(first, "")
 
     def _search_tmdb_movie_id(
         self,
@@ -486,7 +866,13 @@ class PreviewMetaFetcher:
         """构建 Serper 查询模板（尽量覆盖上映、演职员、简介等字段）。"""
         base_name = lock_original_title or movie_name
         year_suffix = f" {lock_year}" if lock_year else ""
-        domain_filter = " OR ".join([f"site:{d}" for d in self.domain_whitelist]) if self.domain_whitelist else ""
+        # Codex SDK 模式遵循已确认规则，不给后备搜索设置硬性域名白名单。
+        use_domain_whitelist = self.llm_runtime == "api"
+        domain_filter = (
+            " OR ".join([f"site:{d}" for d in self.domain_whitelist])
+            if use_domain_whitelist and self.domain_whitelist
+            else ""
+        )
         prefix = f"({domain_filter}) " if domain_filter else ""
         return [
             f"{prefix}{base_name}{year_suffix} imdb",
@@ -509,6 +895,8 @@ class PreviewMetaFetcher:
 
     def _domain_allowed(self, url: str) -> bool:
         """白名单判断：不在白名单域名内的结果直接丢弃。"""
+        if self.llm_runtime == "codex_sdk":
+            return True
         if not self.domain_whitelist:
             return True
         try:
@@ -858,6 +1246,10 @@ class PreviewMetaFetcher:
             "CA": "加拿大",
             "AU": "澳大利亚",
             "IN": "印度",
+            "BE": "比利时",
+            "NL": "荷兰",
+            "IE": "爱尔兰",
+            "NZ": "新西兰",
         }
         upper = name.upper()
         if len(upper) == 2 and upper in code_map:
@@ -872,6 +1264,14 @@ class PreviewMetaFetcher:
             "Macao": "中国澳门",
             "澳门": "中国澳门",
             "China": "中国",
+            "United States": "美国",
+            "United States of America": "美国",
+            "USA": "美国",
+            "United Kingdom": "英国",
+            "Belgium": "比利时",
+            "Netherlands": "荷兰",
+            "Ireland": "爱尔兰",
+            "New Zealand": "新西兰",
         }
         return replace_map.get(name, name)
 
